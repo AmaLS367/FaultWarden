@@ -1,0 +1,153 @@
+services:
+  faultwarden:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faultwarden
+    ports:
+      - "8000:8000"
+    environment:
+      - FAULTWARDEN_HOST=0.0.0.0
+      - FAULTWARDEN_PORT=8000
+      - FAULTWARDEN_ENV=development
+      - FAULTWARDEN_DEBUG=true
+      - FAULTWARDEN_DB_HOST=postgres
+      - FAULTWARDEN_DB_PORT=5432
+      - FAULTWARDEN_DB_USER=faultwarden
+      - FAULTWARDEN_DB_PASSWORD=faultwarden_secret
+      - FAULTWARDEN_DB_NAME=faultwarden
+      - FAULTWARDEN_PROMETHEUS_URL=http://prometheus:9090
+      - FAULTWARDEN_LOKI_URL=http://loki:3100
+      - FAULTWARDEN_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - faultwarden-network
+
+  demo-service:
+    build:
+      context: ./demo_service
+      dockerfile: Dockerfile
+    container_name: demo-service
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - faultwarden-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: faultwarden-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: faultwarden
+      POSTGRES_PASSWORD: faultwarden_secret
+      POSTGRES_DB: faultwarden
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faultwarden -d faultwarden"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - faultwarden-network
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: faultwarden-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    networks:
+      - faultwarden-network
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: faultwarden-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    networks:
+      - faultwarden-network
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: faultwarden-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/tmp/loki
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+    networks:
+      - faultwarden-network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: faultwarden-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - faultwarden-network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    container_name: faultwarden-otel-collector
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus exporter
+    volumes:
+      - ./observability/otel/collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    command:
+      - "--config=/etc/otelcol-contrib/config.yaml"
+    networks:
+      - faultwarden-network
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  alertmanager_data:
+  loki_data:
+  grafana_data:
+
+networks:
+  faultwarden-network:
+    driver: bridge

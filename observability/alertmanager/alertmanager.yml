@@ -1,0 +1,16 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  group_by: ["alertname", "service", "job"]
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 1m
+  receiver: "faultwarden_webhook"
+
+receivers:
+  - name: "faultwarden_webhook"
+    webhook_configs:
+      - url: "http://faultwarden:8000/api/v1/alerts/alertmanager"
+        send_resolved: true
+        max_alerts: 50

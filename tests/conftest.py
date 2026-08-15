@@ -1,0 +1,115 @@
+"""Pytest configuration and test fixtures."""
+
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from faultwarden.api.dependencies import get_db
+from faultwarden.db.base import Base
+from faultwarden.main import app
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
+    """Create an isolated in-memory SQLite async engine for each test."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        echo=False,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """Provide a transactional async database session."""
+    session_factory = async_sessionmaker(
+        bind=test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    async with session_factory() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Provide an authenticated AsyncClient bound to the FastAPI application with test DB."""
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def sample_alertmanager_payload() -> dict[str, Any]:
+    """Return a representative Alertmanager webhook payload."""
+    now_iso = datetime.now(UTC).isoformat()
+    return {
+        "version": "4",
+        "groupKey": '{}:{alertname="High5xxRate",service="demo-service"}',
+        "truncatedAlerts": 0,
+        "status": "firing",
+        "receiver": "faultwarden_webhook",
+        "groupLabels": {
+            "alertname": "High5xxRate",
+            "service": "demo-service",
+        },
+        "commonLabels": {
+            "alertname": "High5xxRate",
+            "service": "demo-service",
+            "severity": "critical",
+            "job": "demo-service",
+        },
+        "commonAnnotations": {
+            "summary": "Elevated HTTP 5xx error rate on demo-service",
+            "description": "demo-service is returning 5xx status codes for incoming requests.",
+            "runbook_url": "https://wiki.internal/runbooks/demo-service-5xx",
+        },
+        "externalURL": "http://alertmanager:9093",
+        "alerts": [
+            {
+                "status": "firing",
+                "labels": {
+                    "alertname": "High5xxRate",
+                    "service": "demo-service",
+                    "severity": "critical",
+                    "instance": "demo-service:8001",
+                },
+                "annotations": {
+                    "summary": "Elevated HTTP 5xx error rate on demo-service",
+                    "description": "demo-service is returning 5xx status codes for incoming requests.",
+                },
+                "startsAt": now_iso,
+                "endsAt": None,
+                "generatorURL": "http://prometheus:9090/graph?g0.expr=rate%28demo_http_requests_total...",
+                "fingerprint": "a1b2c3d4e5f6",
+            }
+        ],
+    }
