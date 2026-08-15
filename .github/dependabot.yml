@@ -1,0 +1,31 @@
+version: 2
+
+updates:
+  # Python dependencies (pyproject.toml / uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # Root Dockerfile (FaultWarden API image)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Demo service Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/demo_service"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

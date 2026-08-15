@@ -129,7 +129,7 @@ class Settings(BaseSettings):
 
     # LLM
     llm_provider: str = "openai"
-    llm_model: str = "gpt-4o"
+    llm_model: str = "gpt-5.6"
     llm_api_key: str = ""
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
@@ -138,6 +138,21 @@ class Settings(BaseSettings):
     otel_service_name: str = "faultwarden"
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     enable_metrics: bool = True
+
+    # CORS
+    cors_origins: str = Field(
+        default="*",
+        description=(
+            "Comma-separated list of allowed CORS origins, or '*' to allow all "
+            "(dev only — credentials are disabled automatically when wildcarded, "
+            "since browsers reject '*' combined with credentialed requests)."
+        ),
+    )
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Return the configured CORS origins as a list."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def server(self) -> ServerSettings:

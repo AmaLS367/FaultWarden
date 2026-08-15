@@ -71,11 +71,13 @@ faultwarden/
 ## Quick Start (Local Development)
 
 ### 1. Prerequisites
+
 * Python 3.12+
 * [uv](https://docs.astral.sh/uv/) for Python package and environment management
 * Docker and Docker Compose (optional for full observability stack)
 
 ### 2. Setup Environment
+
 ```bash
 # Clone the repository
 git clone https://github.com/faultwarden/faultwarden.git
@@ -89,9 +91,18 @@ cp .env.example .env
 ```
 
 ### 3. Run Locally with SQLite (Fast dev mode)
+
 ```bash
+# overrides the PostgreSQL default below and auto-creates tables on startup
+export FAULTWARDEN_DATABASE_URL="sqlite+aiosqlite:///./faultwarden.db"
 uv run uvicorn faultwarden.main:app --reload --port 8000
 ```
+
+> [!NOTE]
+> Without `FAULTWARDEN_DATABASE_URL`, FaultWarden defaults to PostgreSQL (matching
+> the Docker Compose stack) and `/ready` will report the database as unhealthy
+> until a PostgreSQL instance matching `FAULTWARDEN_DB_*` is reachable.
+
 API Documentation will be available at: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
@@ -105,38 +116,40 @@ docker compose up -d --build
 ```
 
 ### Service Map
-| Service | URL / Port | Description |
-| :--- | :--- | :--- |
-| **FaultWarden API** | `http://localhost:8000` | Incident response orchestrator |
-| **Demo Service** | `http://localhost:8001` | Breakable sample microservice |
-| **Prometheus** | `http://localhost:9090` | Metrics collection and alerting |
-| **Alertmanager** | `http://localhost:9093` | Alert grouping and webhook routing |
-| **Loki** | `http://localhost:3100` | Log stream ingestion |
-| **Grafana** | `http://localhost:3000` | Visual dashboards (`admin` / `admin`) |
-| **OpenTelemetry Collector** | `http://localhost:4317` | OTLP gRPC telemetry endpoint |
-| **PostgreSQL** | `localhost:5432` | Incident storage database |
+
+| Service                           | URL / Port                | Description                               |
+| :-------------------------------- | :------------------------ | :---------------------------------------- |
+| **FaultWarden API**         | `http://localhost:8000` | Incident response orchestrator            |
+| **Demo Service**            | `http://localhost:8001` | Breakable sample microservice             |
+| **Prometheus**              | `http://localhost:9090` | Metrics collection and alerting           |
+| **Alertmanager**            | `http://localhost:9093` | Alert grouping and webhook routing        |
+| **Loki**                    | `http://localhost:3100` | Log stream ingestion                      |
+| **Grafana**                 | `http://localhost:3000` | Visual dashboards (`admin` / `admin`) |
+| **OpenTelemetry Collector** | `http://localhost:4317` | OTLP gRPC telemetry endpoint              |
+| **PostgreSQL**              | `localhost:5432`        | Incident storage database                 |
 
 ---
 
 ## Simulating an Incident
 
 1. **Trigger Error Injection** in the demo service:
+
    ```bash
    curl -X POST http://localhost:8001/debug/error-mode/true
    ```
-
 2. **Generate Traffic** to trigger 500 errors:
+
    ```bash
    for i in {1..20}; do curl -s http://localhost:8001/ ; sleep 0.5; done
    ```
-
 3. **Prometheus & Alertmanager** will detect elevated 5xx errors and send a webhook to FaultWarden:
+
    ```bash
    # Check incidents in FaultWarden
    curl http://localhost:8000/api/v1/incidents
    ```
-
 4. **Recover the Demo Service**:
+
    ```bash
    curl -X POST http://localhost:8001/debug/error-mode/false
    ```

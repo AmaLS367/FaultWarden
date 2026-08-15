@@ -71,10 +71,15 @@ def create_app() -> FastAPI:
     )
 
     # CORS
+    # Browsers reject "Access-Control-Allow-Credentials: true" combined with a
+    # wildcard origin, so credentials are only enabled once explicit origins
+    # are configured via FAULTWARDEN_CORS_ORIGINS.
+    cors_origins = settings.cors_origins_list
+    is_wildcard = cors_origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=not is_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
     )
