@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class EvidenceType(StrEnum):
+    """Category of a collected piece of investigation evidence."""
+
     METRIC = "METRIC"
     LOG = "LOG"
     TRACE = "TRACE"

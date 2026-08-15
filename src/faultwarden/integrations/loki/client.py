@@ -82,6 +82,7 @@ class LokiClient(LogsProvider):
         return self._parse_result(data)
 
     def _parse_result(self, payload: dict[str, Any]) -> list[LogEntry]:
+        """Flatten Loki's stream/values response shape into LogEntry objects."""
         entries: list[LogEntry] = []
         if payload.get("status") != "success":
             return entries

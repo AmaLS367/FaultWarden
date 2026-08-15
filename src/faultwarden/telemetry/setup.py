@@ -8,7 +8,7 @@ from faultwarden.core.logging import get_logger
 
 logger = get_logger("faultwarden.telemetry")
 
-# Core application metrics
+# --- Core application metrics ---
 HTTP_REQUESTS_TOTAL = Counter(
     "faultwarden_http_requests_total",
     "Total HTTP requests received by FaultWarden",

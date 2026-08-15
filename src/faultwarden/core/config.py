@@ -101,14 +101,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Server
+    # --- Server ---
     host: str = "0.0.0.0"
     port: int = 8000
     env: Literal["development", "staging", "production", "test"] = "development"
     debug: bool = False
     log_level: str = "INFO"
 
-    # Database
+    # --- Database ---
     db_host: str = "localhost"
     db_port: int = 5432
     db_user: str = "faultwarden"
@@ -119,27 +119,27 @@ class Settings(BaseSettings):
     db_echo: bool = False
     database_url: str | None = None
 
-    # Prometheus
+    # --- Prometheus ---
     prometheus_url: str = "http://localhost:9090"
     prometheus_timeout_seconds: float = 10.0
 
-    # Loki
+    # --- Loki ---
     loki_url: str = "http://localhost:3100"
     loki_timeout_seconds: float = 10.0
 
-    # LLM
+    # --- LLM ---
     llm_provider: str = "openai"
     llm_model: str = "gpt-5.6"
     llm_api_key: str = ""
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
 
-    # Telemetry
+    # --- Telemetry ---
     otel_service_name: str = "faultwarden"
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     enable_metrics: bool = True
 
-    # CORS
+    # --- CORS ---
     cors_origins: str = Field(
         default="*",
         description=(
@@ -156,6 +156,7 @@ class Settings(BaseSettings):
 
     @property
     def server(self) -> ServerSettings:
+        """Return the grouped server/runtime settings."""
         return ServerSettings(
             host=self.host,
             port=self.port,
@@ -166,6 +167,7 @@ class Settings(BaseSettings):
 
     @property
     def database(self) -> DatabaseSettings:
+        """Return the grouped database connection settings."""
         return DatabaseSettings(
             host=self.db_host,
             port=self.db_port,
@@ -180,6 +182,7 @@ class Settings(BaseSettings):
 
     @property
     def prometheus(self) -> PrometheusSettings:
+        """Return the grouped Prometheus integration settings."""
         return PrometheusSettings(
             url=self.prometheus_url,
             timeout_seconds=self.prometheus_timeout_seconds,
@@ -187,6 +190,7 @@ class Settings(BaseSettings):
 
     @property
     def loki(self) -> LokiSettings:
+        """Return the grouped Loki integration settings."""
         return LokiSettings(
             url=self.loki_url,
             timeout_seconds=self.loki_timeout_seconds,
@@ -194,6 +198,7 @@ class Settings(BaseSettings):
 
     @property
     def llm(self) -> LLMSettings:
+        """Return the grouped LLM provider settings."""
         return LLMSettings(
             provider=self.llm_provider,
             model=self.llm_model,
@@ -204,6 +209,7 @@ class Settings(BaseSettings):
 
     @property
     def telemetry(self) -> TelemetrySettings:
+        """Return the grouped telemetry/observability settings."""
         return TelemetrySettings(
             service_name=self.otel_service_name,
             otlp_endpoint=self.otel_exporter_otlp_endpoint,

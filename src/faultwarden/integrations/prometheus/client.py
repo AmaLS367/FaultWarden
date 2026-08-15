@@ -45,6 +45,7 @@ class PrometheusClient(MetricsProvider):
         self._timeout = self._settings.timeout_seconds
 
     async def _get_client(self) -> httpx.AsyncClient:
+        """Build an httpx client bound to the configured Prometheus base URL."""
         return httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout)
 
     async def check_health(self) -> bool:
@@ -101,6 +102,7 @@ class PrometheusClient(MetricsProvider):
         return self._parse_result(expr, data)
 
     def _parse_result(self, query: str, payload: dict[str, Any]) -> list[MetricData]:
+        """Flatten Prometheus's vector/matrix response shape into MetricData objects."""
         results: list[MetricData] = []
         if payload.get("status") != "success":
             return results

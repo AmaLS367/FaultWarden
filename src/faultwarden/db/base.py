@@ -20,11 +20,13 @@ class GUID(TypeDecorator[UUID]):
     cache_ok = True
 
     def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]:
+        """Use native UUID on PostgreSQL, CHAR(36) on every other dialect."""
         if dialect.name == "postgresql":
             return dialect.type_descriptor(PG_UUID(as_uuid=True))
         return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        """Coerce the UUID to its string form before it is bound to the query."""
         if value is None:
             return value
         if dialect.name == "postgresql":
@@ -34,6 +36,7 @@ class GUID(TypeDecorator[UUID]):
         return str(value)
 
     def process_result_value(self, value: Any, _dialect: Dialect) -> UUID | None:
+        """Parse the stored string back into a UUID when reading a row."""
         if value is None:
             return None
         if isinstance(value, UUID):

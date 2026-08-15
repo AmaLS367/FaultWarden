@@ -12,10 +12,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# State for deterministic failure simulation
+# --- State for deterministic failure simulation ---
 _ERROR_MODE_ENABLED: bool = False
 
-# Prometheus metrics
+# --- Prometheus metrics ---
 DEMO_HTTP_REQUESTS_TOTAL = Counter(
     "demo_http_requests_total",
     "Total HTTP requests to the demo service",
@@ -31,6 +31,7 @@ DEMO_HTTP_DURATION_SECONDS = Histogram(
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next: Any) -> Response:
+    """Record request count and latency metrics for every non-/metrics request."""
     start_time = time.perf_counter()
     response = await call_next(request)
     duration = time.perf_counter() - start_time

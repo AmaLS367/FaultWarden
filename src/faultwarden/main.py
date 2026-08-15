@@ -70,7 +70,7 @@ def create_app() -> FastAPI:
         else None,
     )
 
-    # CORS
+    # --- CORS ---
     # Browsers reject "Access-Control-Allow-Credentials: true" combined with a
     # wildcard origin, so credentials are only enabled once explicit origins
     # are configured via FAULTWARDEN_CORS_ORIGINS.
@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Request Logging & Metrics Middleware
+    # --- Request Logging & Metrics Middleware ---
     @app.middleware("http")
     async def request_logging_middleware(
         request: Request, call_next: Callable[..., Any]
@@ -122,7 +122,7 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         return response
 
-    # Exception Handlers
+    # --- Exception Handlers ---
     @app.exception_handler(IncidentNotFoundError)
     async def incident_not_found_handler(
         _request: Request, exc: IncidentNotFoundError
@@ -191,13 +191,14 @@ def create_app() -> FastAPI:
             content={"error": "Validation Error", "details": exc.errors()},
         )
 
+    # --- Routers ---
     # Direct top-level health & metrics endpoints
     app.include_router(health_router)
     app.add_api_route(
         "/metrics", prometheus_metrics_endpoint, methods=["GET"], include_in_schema=False
     )
 
-    # API v1 routes
+    # - API v1 routes
     app.include_router(api_router, prefix="/api/v1")
 
     return app

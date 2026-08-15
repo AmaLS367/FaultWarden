@@ -28,14 +28,17 @@ class AlertItem(BaseModel):
 
     @property
     def alertname(self) -> str:
+        """Return the `alertname` label, or a fallback if it is missing."""
         return self.labels.get("alertname", "UnknownAlert")
 
     @property
     def severity(self) -> str:
+        """Return the `severity` label upper-cased, defaulting to medium."""
         return self.labels.get("severity", "medium").upper()
 
     @property
     def summary(self) -> str:
+        """Return the summary annotation, falling back to description, then the alert name."""
         return self.annotations.get("summary", self.annotations.get("description", self.alertname))
 
 
@@ -65,6 +68,7 @@ class AlertmanagerPayload(BaseModel):
 
     @property
     def primary_alertname(self) -> str:
+        """Return the group's alert name, falling back to the first alert's, then a default."""
         if self.commonLabels.get("alertname"):
             return self.commonLabels["alertname"]
         if self.alerts:
@@ -73,6 +77,7 @@ class AlertmanagerPayload(BaseModel):
 
     @property
     def primary_severity(self) -> str:
+        """Return the group's severity, falling back to the first alert's, then a default."""
         if self.commonLabels.get("severity"):
             return self.commonLabels["severity"].upper()
         if self.alerts:

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class HypothesisStatus(StrEnum):
+    """Lifecycle status of a root-cause hypothesis as it is tested."""
+
     PROPOSED = "PROPOSED"
     TESTING = "TESTING"
     VERIFIED = "VERIFIED"

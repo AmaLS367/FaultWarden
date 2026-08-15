@@ -33,6 +33,7 @@ class PlaceholderLLMProvider(LLMProvider):
         self._settings = settings or get_settings().llm
 
     async def generate_text(self, prompt: str, _system_prompt: str | None = None) -> str:
+        """Echo a deterministic placeholder string instead of calling a real LLM."""
         logger.info("placeholder_llm_generate_text_invoked", prompt_length=len(prompt))
         return f"[PlaceholderLLM Response for prompt: '{prompt[:50]}...']"
 
@@ -42,6 +43,7 @@ class PlaceholderLLMProvider(LLMProvider):
         schema: type[Any],
         _system_prompt: str | None = None,
     ) -> Any:
+        """Return a default-constructed instance of the schema, or None if that fails."""
         logger.info(
             "placeholder_llm_generate_structured_invoked",
             schema=schema.__name__ if hasattr(schema, "__name__") else str(schema),
