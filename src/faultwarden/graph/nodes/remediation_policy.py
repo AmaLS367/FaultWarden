@@ -104,13 +104,30 @@ async def evaluate_remediation_policy_node(
         max_auto_executions=settings.remediation.max_auto_remediations_per_incident,
     )
 
+    decision_value = (
+        policy_result.decision.value
+        if hasattr(policy_result.decision, "value")
+        else str(policy_result.decision)
+    )
     logger.info(
         "remediation_policy_evaluated",
         incident_id=incident_id,
         primary_proposal_id=primary_proposal.id,
-        decision=policy_result.decision.value
-        if hasattr(policy_result.decision, "value")
-        else str(policy_result.decision),
+        decision=decision_value,
     )
+    if isinstance(policy_result, RejectedAction):
+        logger.info(
+            "remediation_rejected_by_policy",
+            incident_id=incident_id,
+            proposal_id=primary_proposal.id,
+            reason=policy_result.reason,
+        )
+    elif isinstance(policy_result, AllowedAction):
+        logger.info(
+            "remediation_auto_approved",
+            incident_id=incident_id,
+            action_id=policy_result.action.id,
+            action_type=policy_result.action.action_type,
+        )
 
     return {"remediation_policy_result": policy_result}

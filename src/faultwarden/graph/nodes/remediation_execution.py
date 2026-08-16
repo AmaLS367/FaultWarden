@@ -51,6 +51,14 @@ async def execute_remediation_node(
         success=result.success,
         status=result.status.value if hasattr(result.status, "value") else str(result.status),
     )
+    if not result.success:
+        logger.warning(
+            "remediation_execution_failed",
+            incident_id=incident_id,
+            action_id=action.id,
+            status=result.status.value if hasattr(result.status, "value") else str(result.status),
+            error=result.error,
+        )
 
     return {"remediation_result": result}
 
@@ -81,6 +89,8 @@ async def validate_remediation_node(
         )
     action = policy_result.action
 
+    logger.info("remediation_validation_started", incident_id=incident_id, action_id=action.id)
+
     settings = get_settings()
     delay = settings.remediation.validation_delay_seconds
     if delay > 0:
@@ -103,6 +113,11 @@ async def validate_remediation_node(
         incident_id=incident_id,
         action_id=action.id,
         passed=recovered,
+    )
+    logger.info(
+        "remediation_validation_succeeded" if recovered else "remediation_validation_failed",
+        incident_id=incident_id,
+        action_id=action.id,
     )
 
     return {"remediation_validation_passed": recovered}

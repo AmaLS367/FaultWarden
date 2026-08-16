@@ -116,6 +116,11 @@ class InvestigationService:
         rem_result = final_state.get("remediation_result")
 
         if validation_passed is True:
+            logger.info(
+                "incident_resolved",
+                incident_id=incident_id_str,
+                action_id=getattr(rem_result, "action_id", None),
+            )
             return (
                 IncidentStatus.RESOLVED,
                 f"Remediation executed and validated: {rem_result.summary if rem_result else 'recovery confirmed.'}",

@@ -209,6 +209,11 @@ class RemediationAuditService:
             if hasattr(action.status, "value")
             else str(action.status),
         )
+        logger.info(
+            "remediation_approved" if approved else "remediation_rejected",
+            action_id=str(action.id),
+            approved_by=approved_by,
+        )
         return action
 
     # --- Execution Result Persistence ---
