@@ -1,6 +1,6 @@
 """Shared helpers for LangGraph investigation nodes: label extraction and provider resolution."""
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -10,6 +10,7 @@ from faultwarden.integrations.llm.provider import LLMProvider
 from faultwarden.integrations.llm.provider import get_llm_provider as _default_llm_provider
 from faultwarden.integrations.loki.client import LogsProvider, LokiClient
 from faultwarden.integrations.prometheus.client import MetricsProvider, PrometheusClient
+from faultwarden.schemas.remediation import RemediationAction, RemediationResult
 
 
 # --- Alert Label Extraction ---
@@ -82,3 +83,15 @@ def get_llm_provider_from_config(config: RunnableConfig | None) -> LLMProvider:
     if provider is not None:
         return provider  # type: ignore[no-any-return]
     return _default_llm_provider()
+
+
+def get_remediation_executor_from_config(
+    config: RunnableConfig | None,
+) -> Callable[[RemediationAction], Awaitable[RemediationResult]]:
+    """Resolve the remediation executor dispatcher injected via graph config, or use the real one."""
+    executor = _configurable(config).get("remediation_executor")
+    if executor is not None:
+        return executor  # type: ignore[no-any-return]
+    from faultwarden.integrations.executors import execute_remediation_action
+
+    return execute_remediation_action

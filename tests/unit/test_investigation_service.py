@@ -1,12 +1,17 @@
 """Unit tests for InvestigationService execution, persistence, and endpoints."""
 
+from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from faultwarden.core.exceptions import RemediationNotAwaitingApprovalError
+from faultwarden.db.models.remediation import RemediationResultModel
 from faultwarden.graph.builder import build_incident_graph
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.schemas.hypothesis import (
@@ -19,9 +24,19 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
-from faultwarden.schemas.remediation import RemediationSafetyLevel
+from faultwarden.schemas.remediation import (
+    ActionType,
+    ApprovalDecision,
+    PolicyDecisionType,
+    RemediationAction,
+    RemediationExecutionStatus,
+    RemediationResult,
+    RemediationSafetyLevel,
+    RemediationStatus,
+)
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
+from faultwarden.services.remediation_audit_service import RemediationAuditService
 
 
 @pytest.mark.asyncio
@@ -66,6 +81,7 @@ async def test_investigation_service_execution_and_persistence(
     assert updated_incident.status in (
         IncidentStatus.ROOT_CAUSE_IDENTIFIED,
         IncidentStatus.REMEDIATION_PROPOSED,
+        IncidentStatus.AWAITING_APPROVAL,
     )
     assert len(updated_incident.evidence) >= 1
     assert len(updated_incident.hypotheses) >= 1
@@ -111,6 +127,7 @@ async def test_investigation_api_endpoints(
     assert run_data["status"] in (
         IncidentStatus.ROOT_CAUSE_IDENTIFIED.value,
         IncidentStatus.REMEDIATION_PROPOSED.value,
+        IncidentStatus.AWAITING_APPROVAL.value,
     )
     assert len(run_data["evidence"]) >= 1
     assert len(run_data["hypotheses"]) >= 1
@@ -180,7 +197,10 @@ async def test_weak_hypothesis_triggers_bounded_iteration_loop() -> None:
 
     # Workflow must terminate within max iterations and propose safe remediations
     assert final_state["iteration_count"] >= 1
-    assert final_state["investigation_status"] in ("COMPLETED", "INCONCLUSIVE")
+    assert "__interrupt__" in final_state or final_state["investigation_status"] in (
+        "COMPLETED",
+        "INCONCLUSIVE",
+    )
     assert len(final_state["remediation_proposals"]) >= 1
     assert final_state["remediation_proposals"][0].proposed_risk in (
         RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
@@ -234,3 +254,199 @@ async def test_investigation_inconclusive_selected_hypothesis_endpoint(
     assert data["selected_hypothesis"]["id"] == "hyp-inconclusive-1"
     assert data["selected_hypothesis"]["title"] == "Potential Network Flap"
     assert data["root_cause"] is None
+
+
+@pytest.mark.asyncio
+async def test_investigation_service_level_2_pause_and_persistence(
+    db_session: AsyncSession,
+) -> None:
+    """Test 6: run_investigation on Level-2 scenario persists proposal + AWAITING_APPROVAL action and pauses."""
+    incident_service = IncidentService(session=db_session)
+    mock_executor = AsyncMock()
+    investigation_service = InvestigationService(
+        incident_service=incident_service,
+        remediation_executor=mock_executor,
+    )
+
+    create_dto = IncidentCreate(
+        title="[CRITICAL] High Latency in demo-service",
+        status=IncidentStatus.DETECTED,
+        severity=IncidentSeverity.CRITICAL,
+        source="alertmanager",
+        summary="Service degradation alert",
+        fingerprint="fp-test-level2-pause",
+        service="demo-service",
+        alert_status="firing",
+        alert_payload={},
+    )
+    incident = await incident_service.create_incident(create_dto)
+
+    updated_incident = await investigation_service.run_investigation(incident.id)
+
+    # 1. Assert status is AWAITING_APPROVAL and langgraph_thread_id is persisted
+    assert updated_incident.status == IncidentStatus.AWAITING_APPROVAL
+    assert updated_incident.langgraph_thread_id is not None
+
+    # 2. Assert RemediationAuditService has persisted proposal and action in AWAITING_APPROVAL
+    audit_service = RemediationAuditService(session=db_session)
+    actions = await audit_service.list_actions_for_incident(incident.id)
+    assert len(actions) == 1
+    assert actions[0].status == RemediationStatus.AWAITING_APPROVAL
+    assert actions[0].decision == PolicyDecisionType.APPROVAL_REQUIRED
+    assert actions[0].action_type == ActionType.RESTART_REGISTERED_SERVICE
+
+    proposal = await audit_service.get_proposal(actions[0].proposal_id)
+    assert proposal is not None
+    assert proposal.incident_id == incident.id
+    mock_executor.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_investigation_service_resume_approval(
+    db_session: AsyncSession,
+) -> None:
+    """Test 7: resume_remediation_approval with APPROVE executes action and records audit results."""
+    incident_service = IncidentService(session=db_session)
+    mock_executor = AsyncMock()
+
+    async def _fake_executor(action: RemediationAction) -> RemediationResult:
+        return RemediationResult(
+            action_id=action.id,
+            status=RemediationExecutionStatus.SUCCEEDED,
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            success=True,
+            summary="Restart succeeded",
+        )
+
+    mock_executor.side_effect = _fake_executor
+
+    investigation_service = InvestigationService(
+        incident_service=incident_service,
+        remediation_executor=mock_executor,
+    )
+
+    create_dto = IncidentCreate(
+        title="[CRITICAL] Error spike in demo-service",
+        status=IncidentStatus.DETECTED,
+        severity=IncidentSeverity.CRITICAL,
+        source="alertmanager",
+        fingerprint="fp-test-resume-approve",
+        service="demo-service",
+        alert_status="firing",
+        alert_payload={},
+    )
+    incident = await incident_service.create_incident(create_dto)
+    await investigation_service.run_investigation(incident.id)
+
+    # Resume with APPROVE
+    resumed_incident = await investigation_service.resume_remediation_approval(
+        incident.id,
+        decision=ApprovalDecision.APPROVE,
+        approved_by="admin@faultwarden.io",
+    )
+
+    assert resumed_incident.status == IncidentStatus.REMEDIATION_PROPOSED
+    mock_executor.assert_awaited_once()
+
+    audit_service = RemediationAuditService(session=db_session)
+    actions = await audit_service.list_actions_for_incident(incident.id)
+    assert len(actions) == 1
+    assert actions[0].status == RemediationStatus.APPROVED
+    assert actions[0].approved_by == "admin@faultwarden.io"
+    assert actions[0].approved_at is not None
+
+    # Check execution result row in DB
+    stmt = select(RemediationResultModel).where(RemediationResultModel.action_id == actions[0].id)
+    res = await db_session.execute(stmt)
+    result_model = res.scalar_one_or_none()
+    assert result_model is not None
+    assert result_model.success is True
+    assert result_model.status == RemediationExecutionStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_investigation_service_resume_not_awaiting_approval_error(
+    db_session: AsyncSession,
+) -> None:
+    """Test 8: resume_remediation_approval on non-awaiting incident raises RemediationNotAwaitingApprovalError."""
+    incident_service = IncidentService(session=db_session)
+    mock_executor = AsyncMock()
+    investigation_service = InvestigationService(
+        incident_service=incident_service,
+        remediation_executor=mock_executor,
+    )
+
+    create_dto = IncidentCreate(
+        title="[INFO] Normal Incident",
+        status=IncidentStatus.DETECTED,
+        severity=IncidentSeverity.LOW,
+        source="alertmanager",
+        fingerprint="fp-test-not-awaiting",
+        service="demo-service",
+    )
+    incident = await incident_service.create_incident(create_dto)
+
+    with pytest.raises(RemediationNotAwaitingApprovalError):
+        await investigation_service.resume_remediation_approval(
+            incident.id,
+            decision=ApprovalDecision.APPROVE,
+            approved_by="operator@faultwarden.io",
+        )
+
+    mock_executor.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_investigation_service_duplicate_resume_fails(
+    db_session: AsyncSession,
+) -> None:
+    """Test 9: Two rapid resume calls on same incident fail on the second call without duplicate execution."""
+    incident_service = IncidentService(session=db_session)
+    mock_executor = AsyncMock()
+
+    async def _fake_executor(action: RemediationAction) -> RemediationResult:
+        return RemediationResult(
+            action_id=action.id,
+            status=RemediationExecutionStatus.SUCCEEDED,
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            success=True,
+            summary="Restart succeeded",
+        )
+
+    mock_executor.side_effect = _fake_executor
+
+    investigation_service = InvestigationService(
+        incident_service=incident_service,
+        remediation_executor=mock_executor,
+    )
+
+    create_dto = IncidentCreate(
+        title="[CRITICAL] Demo incident for double resume",
+        status=IncidentStatus.DETECTED,
+        severity=IncidentSeverity.CRITICAL,
+        source="alertmanager",
+        fingerprint="fp-test-double-resume",
+        service="demo-service",
+    )
+    incident = await incident_service.create_incident(create_dto)
+    await investigation_service.run_investigation(incident.id)
+
+    # First resume succeeds
+    resumed_1 = await investigation_service.resume_remediation_approval(
+        incident.id,
+        decision=ApprovalDecision.APPROVE,
+        approved_by="operator-1@faultwarden.io",
+    )
+    assert resumed_1.status != IncidentStatus.AWAITING_APPROVAL
+
+    # Second resume call fails
+    with pytest.raises(RemediationNotAwaitingApprovalError):
+        await investigation_service.resume_remediation_approval(
+            incident.id,
+            decision=ApprovalDecision.APPROVE,
+            approved_by="operator-2@faultwarden.io",
+        )
+
+    assert mock_executor.await_count == 1

@@ -12,7 +12,11 @@ from faultwarden.schemas.evidence import (
     TraceSpan,
 )
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
-from faultwarden.schemas.remediation import RemediationProposal
+from faultwarden.schemas.remediation import (
+    PolicyResult,
+    RemediationProposal,
+    RemediationResult,
+)
 
 
 def _replace_hypotheses(_old: list[Hypothesis], new: list[Hypothesis]) -> list[Hypothesis]:
@@ -43,6 +47,14 @@ class IncidentInvestigationState(TypedDict, total=False):
 
     # --- Remediation Proposals (Read-Only) ---
     remediation_proposals: Annotated[list[RemediationProposal], operator.add]
+
+    # --- Remediation Policy, Approval & Execution ---
+    remediation_policy_result: PolicyResult | None
+    remediation_approval_decision: (
+        str | None
+    )  # ApprovalDecision value, set only if the approval node ran
+    remediation_result: RemediationResult | None
+    remediation_validation_passed: bool | None
 
     # --- Iterative Loop Control & Missing Telemetry ---
     iteration_count: int

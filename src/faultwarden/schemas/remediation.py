@@ -302,3 +302,29 @@ PolicyResult = Annotated[
     AllowedAction | ApprovalRequiredAction | RejectedAction,
     Field(discriminator="decision"),
 ]
+
+
+# --- Approval Schemas ---
+class ApprovalDecision(StrEnum):
+    """Operator decisions on a paused Level-2 remediation."""
+
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    CANCEL = "CANCEL"
+
+
+class ApprovalContext(BaseModel):
+    """Everything an operator needs to decide on a paused Level-2 remediation — nothing more."""
+
+    model_config = ConfigDict(frozen=True)
+
+    incident_id: str
+    incident_title: str
+    root_cause_summary: str | None
+    confidence: float | None
+    action_type: ActionType
+    action_parameters: dict[str, Any]
+    policy_level: RemediationSafetyLevel
+    expected_effect: str
+    supporting_evidence_ids: list[str]
+    reason_approval_required: str

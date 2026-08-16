@@ -1,14 +1,23 @@
 """Service layer for executing and persisting LangGraph incident investigations."""
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
 
 from faultwarden.core.config import get_settings
-from faultwarden.core.exceptions import FaultWardenError
+from faultwarden.core.exceptions import (
+    FaultWardenError,
+    RemediationActionNotFoundError,
+    RemediationNotAwaitingApprovalError,
+)
 from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.session import get_session_factory
-from faultwarden.graph.builder import build_incident_graph
+from faultwarden.graph.builder import get_production_graph
+from faultwarden.integrations.executors import execute_remediation_action
 from faultwarden.integrations.llm.provider import LLMProvider, get_llm_provider
 from faultwarden.integrations.loki.client import LogsProvider, LokiClient
 from faultwarden.integrations.prometheus.client import MetricsProvider, PrometheusClient
@@ -16,14 +25,30 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
+from faultwarden.schemas.remediation import (
+    AllowedAction,
+    ApprovalDecision,
+    ApprovalRequiredAction,
+    PolicyResult,
+    RejectedAction,
+    RemediationAction,
+    RemediationProposal,
+    RemediationResult,
+    RemediationStatus,
+)
 from faultwarden.services.incident_service import IncidentService
+from faultwarden.services.remediation_audit_service import RemediationAuditService
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
-
     from faultwarden.graph.state import IncidentInvestigationState
 
 logger = get_logger("faultwarden.services.investigation")
+
+
+def _is_graph_paused(final_state: dict[str, Any]) -> bool:
+    """Determine whether the graph execution paused on an interrupt."""
+    interrupts = final_state.get("__interrupt__")
+    return bool(interrupts)
 
 
 class InvestigationService:
@@ -35,11 +60,68 @@ class InvestigationService:
         metrics_provider: MetricsProvider | None = None,
         logs_provider: LogsProvider | None = None,
         llm_provider: LLMProvider | None = None,
+        remediation_executor: (
+            Callable[[RemediationAction], Awaitable[RemediationResult]] | None
+        ) = None,
     ) -> None:
         self.incident_service = incident_service
         self.metrics_provider = metrics_provider
         self.logs_provider = logs_provider
         self.llm_provider = llm_provider
+        self.remediation_executor = remediation_executor
+
+    def _build_run_config(self, thread_id: str) -> RunnableConfig:
+        """Construct RunnableConfig supplying all four configurable dependencies and the thread_id."""
+        settings = get_settings()
+        metrics = self.metrics_provider or PrometheusClient(settings.prometheus)
+        logs = self.logs_provider or LokiClient(settings.loki)
+        llm = self.llm_provider or get_llm_provider()
+        executor = self.remediation_executor or execute_remediation_action
+
+        return {
+            "configurable": {
+                "thread_id": thread_id,
+                "metrics_provider": metrics,
+                "logs_provider": logs,
+                "llm_provider": llm,
+                "remediation_executor": executor,
+            }
+        }
+
+    async def _persist_remediation(
+        self,
+        state_values: dict[str, Any],
+        audit_service: RemediationAuditService,
+    ) -> None:
+        """Persist primary proposal, policy decision, and execution result if available."""
+        policy_result: PolicyResult | None = state_values.get("remediation_policy_result")
+        if policy_result is None:
+            return
+
+        proposals: list[RemediationProposal] = state_values.get("remediation_proposals", [])
+        proposal_id_str: str | None = None
+        if isinstance(policy_result, (AllowedAction, ApprovalRequiredAction)):
+            proposal_id_str = policy_result.action.proposal_id
+        elif isinstance(policy_result, RejectedAction):
+            proposal_id_str = policy_result.proposal_id
+
+        if proposal_id_str:
+            primary_proposal = next(
+                (p for p in proposals if str(p.id) == str(proposal_id_str)),
+                None,
+            )
+            if primary_proposal is not None:
+                proposal_uuid = UUID(str(primary_proposal.id))
+                existing_proposal = await audit_service.get_proposal(proposal_uuid)
+                if existing_proposal is None:
+                    await audit_service.create_proposal(primary_proposal)
+                    await audit_service.create_action_decision(policy_result)
+
+        rem_result = state_values.get("remediation_result")
+        if rem_result is not None:
+            if isinstance(rem_result, dict):
+                rem_result = RemediationResult.model_validate(rem_result)
+            await audit_service.record_execution_result(rem_result)
 
     # --- Synchronous / Direct Graph Run ---
     async def run_investigation(self, incident_id: UUID | str) -> IncidentModel:
@@ -48,6 +130,8 @@ class InvestigationService:
         incident_id_str = str(incident.id)
 
         logger.info("investigation_run_triggered", incident_id=incident_id_str)
+
+        thread_id = str(uuid4())
 
         initial_state: IncidentInvestigationState = {
             "incident_id": incident_id_str,
@@ -75,28 +159,24 @@ class InvestigationService:
             "errors": [],
         }
 
-        graph = build_incident_graph()
-        settings = get_settings()
-        metrics = self.metrics_provider or PrometheusClient(settings.prometheus)
-        logs = self.logs_provider or LokiClient(settings.loki)
-        llm = self.llm_provider or get_llm_provider()
-
-        run_config: RunnableConfig = {
-            "configurable": {
-                "metrics_provider": metrics,
-                "logs_provider": logs,
-                "llm_provider": llm,
-            }
-        }
+        graph = get_production_graph()
+        run_config = self._build_run_config(thread_id)
 
         try:
-            # Commit the INVESTIGATING transition immediately so concurrent readers see it
+            # Commit the INVESTIGATING transition and thread_id immediately so concurrent readers see it
             # right away, instead of holding one long-lived transaction open for the whole
             # (potentially 30-90s) graph run below.
-            await self.incident_service.transition_status(incident.id, IncidentStatus.INVESTIGATING)
+            await self.incident_service.update_incident(
+                incident.id,
+                IncidentUpdate(
+                    status=IncidentStatus.INVESTIGATING,
+                    langgraph_thread_id=thread_id,
+                ),
+            )
             await self.incident_service.session.commit()
 
             final_state: dict[str, Any] = await graph.ainvoke(initial_state, config=run_config)
+            audit_service = RemediationAuditService(self.incident_service.session)
 
             evidence_items = final_state.get("evidence", [])
             hypotheses_list = final_state.get("hypotheses", [])
@@ -106,6 +186,40 @@ class InvestigationService:
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
             graph_investigation_status = final_state.get("investigation_status")
+
+            # Check if graph paused on interrupt (e.g. Level-2 approval required)
+            if _is_graph_paused(final_state):
+                await self._persist_remediation(final_state, audit_service)
+
+                update_data = IncidentUpdate(
+                    status=IncidentStatus.AWAITING_APPROVAL,
+                    evidence=evidence_items,
+                    hypotheses=hypotheses_list,
+                    root_cause=root_cause_val,
+                    proposed_remediations=proposals_list,
+                    summary=summary_val or incident.summary,
+                    classification=classification_val,
+                    iteration_count=iteration_val,
+                )
+
+                updated_incident = await self.incident_service.update_incident(
+                    incident.id, update_data
+                )
+                await self.incident_service.session.commit()
+
+                logger.info(
+                    "remediation_awaiting_approval",
+                    incident_id=incident_id_str,
+                    thread_id=thread_id,
+                    evidence_count=len(evidence_items),
+                    hypotheses_count=len(hypotheses_list),
+                    proposals_count=len(proposals_list),
+                )
+
+                return updated_incident
+
+            # Completed normally
+            await self._persist_remediation(final_state, audit_service)
 
             if proposals_list:
                 next_status = IncidentStatus.REMEDIATION_PROPOSED
@@ -183,6 +297,154 @@ class InvestigationService:
                     error=str(write_exc),
                 )
             raise FaultWardenError(f"Investigation execution failed: {exc}") from exc
+
+    # --- Resume Remediation Approval ---
+    async def resume_remediation_approval(
+        self,
+        incident_id: UUID | str,
+        *,
+        decision: ApprovalDecision,
+        approved_by: str,
+    ) -> IncidentModel:
+        """Resume a paused Level-2 remediation approval and run the graph to completion or the next pause."""
+        incident = await self.incident_service.get_incident(incident_id)
+        incident_id_str = str(incident.id)
+
+        if incident.status != IncidentStatus.AWAITING_APPROVAL:
+            raise RemediationNotAwaitingApprovalError(
+                incident_id_str,
+                current_status=incident.status.value
+                if hasattr(incident.status, "value")
+                else str(incident.status),
+            )
+
+        if not incident.langgraph_thread_id:
+            raise RemediationNotAwaitingApprovalError(
+                incident_id_str,
+                current_status=f"Missing thread ID (status: {incident.status})",
+            )
+
+        audit_service = RemediationAuditService(self.incident_service.session)
+        actions = await audit_service.list_actions_for_incident(incident.id)
+        awaiting_actions = [a for a in actions if a.status == RemediationStatus.AWAITING_APPROVAL]
+
+        if not awaiting_actions:
+            raise RemediationActionNotFoundError(
+                f"No action in AWAITING_APPROVAL status found for incident '{incident_id_str}'."
+            )
+        if len(awaiting_actions) > 1:
+            raise FaultWardenError(
+                f"Multiple ({len(awaiting_actions)}) actions in AWAITING_APPROVAL status found for incident '{incident_id_str}'."
+            )
+
+        action = awaiting_actions[0]
+        approved = decision == ApprovalDecision.APPROVE
+        await audit_service.record_approval_decision(
+            action.id,
+            approved=approved,
+            approved_by=approved_by,
+        )
+
+        graph = get_production_graph()
+        run_config = self._build_run_config(incident.langgraph_thread_id)
+
+        try:
+            resume_val = {
+                "decision": decision.value if hasattr(decision, "value") else str(decision)
+            }
+            final_state: dict[str, Any] = await graph.ainvoke(
+                Command(resume=resume_val),
+                config=run_config,
+            )
+
+            evidence_items = final_state.get("evidence", [])
+            hypotheses_list = final_state.get("hypotheses", [])
+            root_cause_val = final_state.get("root_cause")
+            proposals_list = final_state.get("remediation_proposals", [])
+            summary_val = final_state.get("summary", "")
+            classification_val = final_state.get("classification")
+            iteration_val = final_state.get("iteration_count", 1)
+            graph_investigation_status = final_state.get("investigation_status")
+
+            if _is_graph_paused(final_state):
+                await self._persist_remediation(final_state, audit_service)
+
+                update_data = IncidentUpdate(
+                    status=IncidentStatus.AWAITING_APPROVAL,
+                    evidence=evidence_items,
+                    hypotheses=hypotheses_list,
+                    root_cause=root_cause_val,
+                    proposed_remediations=proposals_list,
+                    summary=summary_val or incident.summary,
+                    classification=classification_val,
+                    iteration_count=iteration_val,
+                )
+
+                updated_incident = await self.incident_service.update_incident(
+                    incident.id, update_data
+                )
+                await self.incident_service.session.commit()
+
+                logger.info(
+                    "remediation_awaiting_approval",
+                    incident_id=incident_id_str,
+                    thread_id=incident.langgraph_thread_id,
+                )
+                return updated_incident
+
+            # Completed normally
+            await self._persist_remediation(final_state, audit_service)
+
+            if proposals_list:
+                next_status = IncidentStatus.REMEDIATION_PROPOSED
+            elif root_cause_val:
+                next_status = IncidentStatus.ROOT_CAUSE_IDENTIFIED
+            else:
+                logger.warning(
+                    "investigation_resume_completed_without_output",
+                    incident_id=incident_id_str,
+                    graph_investigation_status=graph_investigation_status,
+                )
+                next_status = IncidentStatus.FAILED
+
+            update_data = IncidentUpdate(
+                status=next_status,
+                evidence=evidence_items,
+                hypotheses=hypotheses_list,
+                root_cause=root_cause_val,
+                proposed_remediations=proposals_list,
+                summary=summary_val or incident.summary,
+                classification=classification_val,
+                iteration_count=iteration_val,
+            )
+
+            updated_incident = await self.incident_service.update_incident(incident.id, update_data)
+            await self.incident_service.session.commit()
+
+            logger.info(
+                "remediation_approval_resumed_completed",
+                incident_id=incident_id_str,
+                decision=decision.value if hasattr(decision, "value") else str(decision),
+                status=next_status.value,
+            )
+
+            return updated_incident
+
+        except Exception as exc:
+            logger.error(
+                "investigation_resume_failed",
+                incident_id=incident_id_str,
+                error=str(exc),
+            )
+            try:
+                await self.incident_service.session.rollback()
+            except Exception as rollback_exc:
+                logger.error(
+                    "investigation_resume_rollback_failed",
+                    incident_id=incident_id_str,
+                    error=str(rollback_exc),
+                )
+            raise FaultWardenError(f"Investigation resume failed: {exc}") from exc
 
 
 # --- Background Investigation Worker ---

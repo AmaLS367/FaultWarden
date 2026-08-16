@@ -16,7 +16,19 @@ from sqlalchemy.ext.asyncio import (
 
 from faultwarden.api.dependencies import get_db
 from faultwarden.db.base import Base
+from faultwarden.graph.builder import reset_production_graph
+from faultwarden.graph.checkpointer import set_checkpointer
 from faultwarden.main import app
+
+
+@pytest.fixture(autouse=True)
+def _reset_graph_state() -> Any:
+    """Reset checkpointer and compiled production graph between tests."""
+    reset_production_graph()
+    set_checkpointer(None)
+    yield
+    reset_production_graph()
+    set_checkpointer(None)
 
 
 @pytest_asyncio.fixture(scope="function")

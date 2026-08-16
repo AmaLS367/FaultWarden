@@ -2,10 +2,12 @@
 
 from typing import Any, Literal
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from faultwarden.core.config import get_settings
+from faultwarden.graph.checkpointer import get_checkpointer
 from faultwarden.graph.nodes.classify import classify_incident_node
 from faultwarden.graph.nodes.collect_additional import collect_additional_telemetry_node
 from faultwarden.graph.nodes.collect_logs import collect_initial_logs_node
@@ -14,8 +16,22 @@ from faultwarden.graph.nodes.correlate import correlate_evidence_node
 from faultwarden.graph.nodes.finalize import finalize_investigation_node
 from faultwarden.graph.nodes.hypothesize import generate_hypotheses_node
 from faultwarden.graph.nodes.propose_remediation import propose_remediation_node
+from faultwarden.graph.nodes.remediation_approval import await_remediation_approval_node
+from faultwarden.graph.nodes.remediation_execution import (
+    execute_remediation_node,
+    validate_remediation_node,
+)
+from faultwarden.graph.nodes.remediation_policy import evaluate_remediation_policy_node
 from faultwarden.graph.nodes.verify import verify_hypothesis_node
 from faultwarden.graph.state import IncidentInvestigationState
+from faultwarden.schemas.remediation import (
+    AllowedAction,
+    ApprovalDecision,
+    ApprovalRequiredAction,
+)
+
+# Cached production graph compiled with the durable checkpointer
+_production_graph: CompiledStateGraph[IncidentInvestigationState, Any, Any, Any] | None = None
 
 
 # --- Conditional Routing Logic ---
@@ -42,8 +58,32 @@ def should_continue_investigation(
     return "collect_additional_telemetry"
 
 
+def route_remediation_policy_result(
+    state: IncidentInvestigationState,
+) -> Literal["execute_remediation", "await_remediation_approval", "finalize_investigation"]:
+    """Route based on the deterministic policy evaluation outcome."""
+    policy_res = state.get("remediation_policy_result")
+    if isinstance(policy_res, AllowedAction):
+        return "execute_remediation"
+    if isinstance(policy_res, ApprovalRequiredAction):
+        return "await_remediation_approval"
+    return "finalize_investigation"
+
+
+def route_approval_decision(
+    state: IncidentInvestigationState,
+) -> Literal["execute_remediation", "finalize_investigation"]:
+    """Route based on human operator approval decision after interrupt resume."""
+    decision = state.get("remediation_approval_decision")
+    if decision == ApprovalDecision.APPROVE.value:
+        return "execute_remediation"
+    return "finalize_investigation"
+
+
 # --- Graph Construction ---
-def build_incident_graph() -> CompiledStateGraph[IncidentInvestigationState, Any, Any, Any]:
+def build_incident_graph(
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+) -> CompiledStateGraph[IncidentInvestigationState, Any, Any, Any]:
     """Construct and compile the cyclical LangGraph incident investigation workflow."""
     workflow = StateGraph(IncidentInvestigationState)
 
@@ -56,6 +96,10 @@ def build_incident_graph() -> CompiledStateGraph[IncidentInvestigationState, Any
     workflow.add_node("verify_hypothesis", verify_hypothesis_node)
     workflow.add_node("collect_additional_telemetry", collect_additional_telemetry_node)
     workflow.add_node("propose_remediation", propose_remediation_node)
+    workflow.add_node("evaluate_remediation_policy", evaluate_remediation_policy_node)
+    workflow.add_node("await_remediation_approval", await_remediation_approval_node)
+    workflow.add_node("execute_remediation", execute_remediation_node)
+    workflow.add_node("validate_remediation", validate_remediation_node)
     workflow.add_node("finalize_investigation", finalize_investigation_node)
 
     # Establish linear telemetry gathering pipeline
@@ -79,8 +123,47 @@ def build_incident_graph() -> CompiledStateGraph[IncidentInvestigationState, Any
     # Loop back from additional telemetry collection to hypothesis re-evaluation
     workflow.add_edge("collect_additional_telemetry", "generate_hypotheses")
 
-    # Wrap up through remediation and finalization
-    workflow.add_edge("propose_remediation", "finalize_investigation")
+    # Remediation policy evaluation branch
+    workflow.add_edge("propose_remediation", "evaluate_remediation_policy")
+    workflow.add_conditional_edges(
+        "evaluate_remediation_policy",
+        route_remediation_policy_result,
+        {
+            "execute_remediation": "execute_remediation",
+            "await_remediation_approval": "await_remediation_approval",
+            "finalize_investigation": "finalize_investigation",
+        },
+    )
+
+    # Human-in-the-loop approval branch
+    workflow.add_conditional_edges(
+        "await_remediation_approval",
+        route_approval_decision,
+        {
+            "execute_remediation": "execute_remediation",
+            "finalize_investigation": "finalize_investigation",
+        },
+    )
+
+    # Execution, validation stub, and finalization
+    workflow.add_edge("execute_remediation", "validate_remediation")
+    workflow.add_edge("validate_remediation", "finalize_investigation")
     workflow.add_edge("finalize_investigation", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)
+
+
+# --- Production Graph Accessor ---
+def get_production_graph() -> CompiledStateGraph[IncidentInvestigationState, Any, Any, Any]:
+    """Return the cached production StateGraph compiled with the active checkpointer."""
+    global _production_graph
+    if _production_graph is None:
+        checkpointer = get_checkpointer()
+        _production_graph = build_incident_graph(checkpointer=checkpointer)
+    return _production_graph
+
+
+def reset_production_graph() -> None:
+    """Reset the cached production graph singleton (useful during test resets)."""
+    global _production_graph
+    _production_graph = None

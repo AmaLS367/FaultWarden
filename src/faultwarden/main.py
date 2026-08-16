@@ -24,6 +24,7 @@ from faultwarden.core.exceptions import (
 )
 from faultwarden.core.logging import get_logger, setup_logging
 from faultwarden.db.session import init_db_models
+from faultwarden.graph.checkpointer import close_checkpointer, init_checkpointer
 from faultwarden.telemetry.setup import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
@@ -55,12 +56,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         port=settings.server.port,
     )
 
+    # Initialize checkpointer (AsyncPostgresSaver on Postgres, InMemorySaver fallback on SQLite)
+    await init_checkpointer(settings)
+
     # Initialize tables automatically when running with SQLite (e.g. dev/tests)
     if "sqlite" in settings.database.async_url:
         await init_db_models()
 
     yield
 
+    # Cleanly close checkpointer connections on shutdown
+    await close_checkpointer()
     logger.info("faultwarden_shutting_down")
 
 

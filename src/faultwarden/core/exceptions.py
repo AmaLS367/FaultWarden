@@ -108,6 +108,18 @@ class RemediationSafetyError(FaultWardenError):
         )
 
 
+class RemediationNotAwaitingApprovalError(FaultWardenError):
+    """Raised when attempting to approve or resume an incident that is not awaiting approval."""
+
+    def __init__(self, incident_id: str, current_status: str | None = None) -> None:
+        super().__init__(
+            f"Incident '{incident_id}' is not in AWAITING_APPROVAL status (current: {current_status}).",
+            {"incident_id": incident_id, "current_status": current_status},
+        )
+        self.incident_id = incident_id
+        self.current_status = current_status
+
+
 class InvestigationWorkflowError(FaultWardenError):
     """Raised when the LangGraph investigation workflow fails during execution."""
 

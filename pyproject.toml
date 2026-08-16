@@ -19,6 +19,7 @@ dependencies = [
     "alembic>=1.13.2",
     "langchain>=0.2.14",
     "langgraph>=0.2.14",
+    "langgraph-checkpoint-postgres>=2.0.0",
     "httpx>=0.27.0",
     "prometheus-client>=0.20.0",
     "opentelemetry-api>=1.26.0",
@@ -89,6 +90,11 @@ module = [
     "prometheus_client.*",
     "opentelemetry.*",
     "asyncpg.*",
+    "structlog.*",
+    "langchain.*",
+    "langchain_core.*",
+    "langgraph.*",
+    "langgraph_checkpoint_postgres.*",
 ]
 ignore_missing_imports = true
 

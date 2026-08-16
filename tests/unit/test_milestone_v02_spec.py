@@ -156,7 +156,10 @@ async def test_spec_6_invalid_llm_output_handled_safely() -> None:
     }
     result = await graph.ainvoke(state)
     assert len(result["hypotheses"]) >= 1
-    assert result["investigation_status"] in ("COMPLETED", "INCONCLUSIVE")
+    assert "__interrupt__" in result or result["investigation_status"] in (
+        "COMPLETED",
+        "INCONCLUSIVE",
+    )
 
 
 # 7. Verification can promote a strongly-supported hypothesis

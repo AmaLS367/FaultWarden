@@ -86,6 +86,7 @@ class IncidentUpdate(BaseModel):
     fingerprint: str | None = None
     service: str | None = None
     alert_status: str | None = None
+    langgraph_thread_id: str | None = None
     alert_payload: dict[str, Any] | None = None
     evidence: list[EvidenceItem] | None = None
     hypotheses: list[Hypothesis] | None = None
