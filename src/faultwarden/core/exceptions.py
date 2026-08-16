@@ -120,6 +120,23 @@ class RemediationNotAwaitingApprovalError(FaultWardenError):
         self.current_status = current_status
 
 
+class RemediationApprovalStaleError(FaultWardenError):
+    """Raised when an approval decision arrives after the configured approval_timeout_seconds window."""
+
+    def __init__(self, action_id: str, pending_seconds: float, timeout_seconds: float) -> None:
+        super().__init__(
+            f"Remediation action '{action_id}' has been awaiting approval for "
+            f"{pending_seconds:.0f}s, exceeding the {timeout_seconds:.0f}s timeout. "
+            "Re-run the investigation to generate a fresh proposal.",
+            {
+                "action_id": action_id,
+                "pending_seconds": pending_seconds,
+                "timeout_seconds": timeout_seconds,
+            },
+        )
+        self.action_id = action_id
+
+
 class InvestigationWorkflowError(FaultWardenError):
     """Raised when the LangGraph investigation workflow fails during execution."""
 

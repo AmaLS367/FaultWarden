@@ -8,8 +8,55 @@ from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
 from faultwarden.core.policy import evaluate_policy
 from faultwarden.graph.state import IncidentInvestigationState
+from faultwarden.schemas.remediation import ActionType, AllowedAction, PolicyResult, RejectedAction
 
 logger = get_logger("faultwarden.graph.nodes.remediation_policy")
+
+
+def _extract_proposal_id_and_action_type(policy_result: PolicyResult) -> tuple[str, ActionType]:
+    """Extract (proposal_id, action_type) from any PolicyResult variant."""
+    if isinstance(policy_result, RejectedAction):
+        return policy_result.proposal_id, policy_result.action_type
+    return policy_result.action.proposal_id, policy_result.action.action_type
+
+
+def _enforce_remediation_limits(
+    policy_result: PolicyResult,
+    *,
+    prior_attempt_count: int,
+    prior_auto_execution_count: int,
+    max_attempts: int,
+    max_auto_executions: int,
+) -> PolicyResult:
+    """Deterministically stop automation once configured attempt/auto-execution ceilings are hit.
+
+    These limits come from Settings (never the LLM — see AGENTS.md) and are enforced here rather
+    than inside evaluate_policy() so the core policy engine stays focused on per-proposal
+    classification; this is a separate, incident-history-aware gate layered on top of it.
+    """
+    if prior_attempt_count >= max_attempts:
+        proposal_id, action_type = _extract_proposal_id_and_action_type(policy_result)
+        return RejectedAction(
+            proposal_id=proposal_id,
+            action_type=action_type,
+            reason=(
+                f"Maximum remediation attempts ({max_attempts}) reached for this incident; "
+                "automation stopped, manual intervention required."
+            ),
+        )
+    if (
+        isinstance(policy_result, AllowedAction)
+        and prior_auto_execution_count >= max_auto_executions
+    ):
+        return RejectedAction(
+            proposal_id=policy_result.action.proposal_id,
+            action_type=policy_result.action.action_type,
+            reason=(
+                f"Maximum auto-executed remediations ({max_auto_executions}) reached for this "
+                "incident; automation stopped, manual intervention required."
+            ),
+        )
+    return policy_result
 
 
 # --- Policy Evaluation Node ---
@@ -48,6 +95,14 @@ async def evaluate_remediation_policy_node(
 
     settings = get_settings()
     policy_result = evaluate_policy(primary_proposal, settings=settings.remediation)
+
+    policy_result = _enforce_remediation_limits(
+        policy_result,
+        prior_attempt_count=state.get("remediation_prior_attempt_count", 0),
+        prior_auto_execution_count=state.get("remediation_prior_auto_execution_count", 0),
+        max_attempts=settings.remediation.max_remediation_attempts_per_incident,
+        max_auto_executions=settings.remediation.max_auto_remediations_per_incident,
+    )
 
     logger.info(
         "remediation_policy_evaluated",

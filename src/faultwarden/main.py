@@ -21,6 +21,7 @@ from faultwarden.core.exceptions import (
     InvalidAlertPayloadError,
     ProviderError,
     RemediationActionNotFoundError,
+    RemediationApprovalStaleError,
     RemediationNotAwaitingApprovalError,
     RemediationProposalNotFoundError,
     RemediationSafetyError,
@@ -215,6 +216,17 @@ def create_app() -> FastAPI:
             incident_id=exc.incident_id,
             current_status=exc.current_status,
         )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "Conflict", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RemediationApprovalStaleError)
+    async def remediation_approval_stale_handler(
+        _request: Request, exc: RemediationApprovalStaleError
+    ) -> JSONResponse:
+        """Map an approval decision arriving after the timeout window to a 409 response."""
+        logger.warning("remediation_approval_stale", error=exc.message, action_id=exc.action_id)
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"error": "Conflict", "message": exc.message, "details": exc.details},

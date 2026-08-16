@@ -56,6 +56,11 @@ class IncidentInvestigationState(TypedDict, total=False):
     remediation_result: RemediationResult | None
     remediation_validation_passed: bool | None
 
+    # --- Remediation Limits (populated by the service layer from prior-attempt history,
+    # never by the LLM — see AGENTS.md: limits must not be model-controlled) ---
+    remediation_prior_attempt_count: int
+    remediation_prior_auto_execution_count: int
+
     # --- Iterative Loop Control & Missing Telemetry ---
     iteration_count: int
     missing_evidence_queries: list[str]

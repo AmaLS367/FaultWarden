@@ -1,6 +1,7 @@
 """Service layer for executing and persisting LangGraph incident investigations."""
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -11,6 +12,7 @@ from faultwarden.core.config import get_settings
 from faultwarden.core.exceptions import (
     FaultWardenError,
     RemediationActionNotFoundError,
+    RemediationApprovalStaleError,
     RemediationNotAwaitingApprovalError,
 )
 from faultwarden.core.logging import get_logger
@@ -32,6 +34,7 @@ from faultwarden.schemas.remediation import (
     AllowedAction,
     ApprovalDecision,
     ApprovalRequiredAction,
+    PolicyDecisionType,
     PolicyResult,
     RejectedAction,
     RemediationAction,
@@ -138,6 +141,14 @@ class InvestigationService:
         )
         return (IncidentStatus.FAILED, None)
 
+    async def _count_prior_remediations(self, incident_id: UUID) -> tuple[int, int]:
+        """Count this incident's prior remediation attempts and auto-executions for limit enforcement."""
+        audit_service = RemediationAuditService(self.incident_service.session)
+        actions = await audit_service.list_actions_for_incident(incident_id)
+        attempt_count = len(actions)
+        auto_execution_count = sum(1 for a in actions if a.decision == PolicyDecisionType.ALLOWED)
+        return attempt_count, auto_execution_count
+
     async def _persist_remediation(
         self,
         state_values: dict[str, Any],
@@ -183,6 +194,11 @@ class InvestigationService:
 
         thread_id = str(uuid4())
 
+        # Deterministic limits are computed from prior-attempt history, never from the LLM.
+        prior_attempt_count, prior_auto_execution_count = await self._count_prior_remediations(
+            incident.id
+        )
+
         initial_state: IncidentInvestigationState = {
             "incident_id": incident_id_str,
             "incident_context": {
@@ -207,6 +223,8 @@ class InvestigationService:
             "missing_evidence_queries": [],
             "summary": "",
             "errors": [],
+            "remediation_prior_attempt_count": prior_attempt_count,
+            "remediation_prior_auto_execution_count": prior_auto_execution_count,
         }
 
         graph = get_production_graph()
@@ -379,6 +397,18 @@ class InvestigationService:
             )
 
         action = awaiting_actions[0]
+
+        # SQLite (dev/test) returns naive datetimes even for DateTime(timezone=True) columns;
+        # Postgres (production) returns timezone-aware ones. Normalize before subtracting.
+        created_at = action.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+
+        timeout_seconds = get_settings().remediation.approval_timeout_seconds
+        pending_seconds = (datetime.now(UTC) - created_at).total_seconds()
+        if pending_seconds > timeout_seconds:
+            raise RemediationApprovalStaleError(str(action.id), pending_seconds, timeout_seconds)
+
         approved = decision == ApprovalDecision.APPROVE
         await audit_service.record_approval_decision(
             action.id,
