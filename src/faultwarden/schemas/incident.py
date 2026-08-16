@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
 from faultwarden.schemas.remediation import RemediationProposal
@@ -106,6 +107,28 @@ class IncidentRead(IncidentBase):
     resolution: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class InvestigationDetail(BaseModel):
+    """Detailed investigation summary returned by dedicated investigation endpoints."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    incident_id: UUID
+    status: IncidentStatus
+    severity: IncidentSeverity
+    service: str | None = None
+    classification: IncidentClassification | None = None
+    iteration_count: int = 1
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    hypotheses: list[Hypothesis] = Field(default_factory=list)
+    selected_hypothesis: Hypothesis | None = None
+    root_cause: RootCauseAnalysis | None = None
+    remediation_proposals: list[RemediationProposal] = Field(default_factory=list)
+    summary: str | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class IncidentFilter(BaseModel):

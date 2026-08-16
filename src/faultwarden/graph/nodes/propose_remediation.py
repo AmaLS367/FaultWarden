@@ -1,4 +1,4 @@
-"""Remediation proposal node: suggests tier-classified remediation plans."""
+"""Remediation proposal node: suggests tier-classified remediation plans (read-only)."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -6,9 +6,11 @@ from uuid import uuid4
 
 from faultwarden.core.logging import get_logger
 from faultwarden.graph.state import IncidentInvestigationState
+from faultwarden.integrations.llm.provider import get_llm_provider
 from faultwarden.schemas.remediation import (
     RemediationAction,
     RemediationProposal,
+    RemediationProposalResponse,
     RemediationSafetyLevel,
     RemediationStatus,
 )
@@ -16,54 +18,126 @@ from faultwarden.schemas.remediation import (
 logger = get_logger("faultwarden.graph.nodes.propose_remediation")
 
 
+# --- Remediation Proposal Logic (Read-Only) ---
 async def propose_remediation_node(
     state: IncidentInvestigationState,
 ) -> dict[str, Any]:
-    """Generate structured remediation proposals based on identified root cause."""
+    """Generate structured remediation proposals based on identified root cause (recommendations only)."""
     incident_id = state.get("incident_id", "unknown")
     root_cause = state.get("root_cause")
-    logger.info("node_propose_remediation_start", incident_id=incident_id)
+    selected_hyp = state.get("selected_hypothesis")
 
-    target_service = root_cause.culprit_service if root_cause else "demo-service"
+    logger.info("propose_remediation_start", incident_id=incident_id)
+
+    target_service = (
+        root_cause.culprit_service
+        if root_cause
+        else (selected_hyp.affected_component if selected_hyp else "demo-service")
+    )
+    cause_summary = (
+        root_cause.summary
+        if root_cause
+        else (selected_hyp.description if selected_hyp else "Unconfirmed failure mode")
+    )
+
+    prompt = (
+        f"Generate a safe, structured remediation plan for the following incident root cause:\n\n"
+        f"Target Service: {target_service}\n"
+        f"Root Cause: {cause_summary}\n\n"
+        "Guidelines:\n"
+        "1. Propose 1 to 3 discrete actions.\n"
+        "2. Assign safety levels: 1 for safe non-destructive parameter resets, 2 for rollbacks/scaling.\n"
+        "3. Include a concise rollback plan.\n"
+        "4. This is for recommendations ONLY; do NOT execute any action."
+    )
+
+    llm = get_llm_provider()
+    actions: list[RemediationAction] = []
+    proposal_title = f"Remediation Proposal for {target_service}"
+    proposal_summary = f"Remediation actions proposed for root cause: {cause_summary}"
+    est_impact = "Restores normal request throughput and reduces error rates."
+    rollback_plan = "Revert applied parameter changes if degradation persists."
+
+    try:
+        response: RemediationProposalResponse = await llm.generate_structured(
+            prompt=prompt,
+            schema=RemediationProposalResponse,
+            system_prompt="You are FaultWarden's Safe Remediation Advisor.",
+        )
+        proposal_title = response.title or proposal_title
+        proposal_summary = response.summary or proposal_summary
+        est_impact = response.estimated_impact or est_impact
+        rollback_plan = response.rollback_plan or rollback_plan
+
+        for act in response.actions:
+            level = (
+                RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC
+                if act.safety_level == 1
+                else RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED
+            )
+            actions.append(
+                RemediationAction(
+                    id=str(uuid4()),
+                    name=act.name,
+                    target_service=act.target_service or target_service,
+                    safety_level=level,
+                    action_type=act.action_type,
+                    parameters=act.parameters,
+                    description=act.description,
+                )
+            )
+    except Exception as exc:
+        logger.warning("llm_remediation_proposal_failed", error=str(exc))
+
+    if not actions:
+        # Fallback deterministic actions
+        actions = [
+            RemediationAction(
+                id=str(uuid4()),
+                name="Reset Fault Injection State",
+                target_service=target_service,
+                safety_level=RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
+                action_type="disable_error_mode",
+                parameters={"enabled": False},
+                description="Reset debug error simulation mode via HTTP POST /debug/error-mode/false",
+            ),
+            RemediationAction(
+                id=str(uuid4()),
+                name="Scale Connection Pool Capacity",
+                target_service=target_service,
+                safety_level=RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
+                action_type="scale_db_pool",
+                parameters={"max_connections": 50},
+                description="Increase connection pool size to mitigate concurrency bottlenecks",
+            ),
+        ]
+
+    highest_level = max(
+        (a.safety_level for a in actions),
+        default=RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
+    )
+
     now = datetime.now(UTC)
-
-    # Deterministic placeholder remediation proposals
-    action_1 = RemediationAction(
-        id=str(uuid4()),
-        name="Disable Error Simulation Mode",
-        target_service=target_service,
-        safety_level=RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
-        action_type="disable_error_mode",
-        parameters={"enabled": False},
-        description="Reset the debug error mode flag to false via HTTP POST /debug/error-mode/false",
-    )
-
-    action_2 = RemediationAction(
-        id=str(uuid4()),
-        name="Rollback Service to Previous Release",
-        target_service=target_service,
-        safety_level=RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
-        action_type="rollback_deployment",
-        parameters={"target_version": "v1.4.1"},
-        description="Rollback the demo-service container deployment to v1.4.1",
-    )
-
     proposal = RemediationProposal(
         id=str(uuid4()),
         incident_id=incident_id,
-        title=f"Remediation Proposal for {target_service}",
-        summary="Disable simulated fault injection mode or restart service instance.",
-        highest_safety_level=RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
-        requires_human_approval=False,
+        title=proposal_title,
+        summary=proposal_summary,
+        highest_safety_level=highest_level,
+        requires_human_approval=True,  # Safety invariant: recommendations require operator approval
         status=RemediationStatus.PROPOSED,
-        actions=[action_1, action_2],
-        estimated_impact="Restores 100% HTTP 200 OK responses within 5 seconds",
-        rollback_plan="Re-enable error mode if testing requires it",
+        actions=actions,
+        estimated_impact=est_impact,
+        rollback_plan=rollback_plan,
         created_at=now,
     )
 
     logger.info(
-        "node_propose_remediation_completed", incident_id=incident_id, proposal_id=proposal.id
+        "remediation_proposal_generated",
+        incident_id=incident_id,
+        proposal_id=proposal.id,
+        actions_count=len(actions),
+        highest_safety_level=int(highest_level),
     )
 
     return {

@@ -6,11 +6,17 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from faultwarden.db.session import get_db_session
-from faultwarden.integrations.llm.provider import LLMProvider, PlaceholderLLMProvider
+from faultwarden.integrations.llm.provider import (
+    LLMProvider,
+)
+from faultwarden.integrations.llm.provider import (
+    get_llm_provider as get_default_llm_provider,
+)
 from faultwarden.integrations.loki.client import LogsProvider, LokiClient
 from faultwarden.integrations.prometheus.client import MetricsProvider, PrometheusClient
 from faultwarden.services.alert_service import AlertService
 from faultwarden.services.incident_service import IncidentService
+from faultwarden.services.investigation_service import InvestigationService
 
 
 # --- Database Dependencies ---
@@ -33,6 +39,13 @@ def get_alert_service(
     return AlertService(incident_service=incident_service)
 
 
+def get_investigation_service(
+    incident_service: IncidentService = Depends(get_incident_service),
+) -> InvestigationService:
+    """Dependency for InvestigationService."""
+    return InvestigationService(incident_service=incident_service)
+
+
 # --- Integration Provider Dependencies ---
 def get_metrics_provider() -> MetricsProvider:
     """Dependency for Prometheus/MetricsProvider."""
@@ -46,4 +59,4 @@ def get_logs_provider() -> LogsProvider:
 
 def get_llm_provider() -> LLMProvider:
     """Dependency for LLMProvider."""
-    return PlaceholderLLMProvider()
+    return get_default_llm_provider()

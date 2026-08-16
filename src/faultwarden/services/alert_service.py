@@ -10,10 +10,11 @@ from faultwarden.schemas.incident import (
     IncidentUpdate,
 )
 from faultwarden.services.incident_service import IncidentService
+from faultwarden.services.investigation_service import trigger_background_investigation
 
 logger = get_logger("faultwarden.services.alert")
 
-# Mapping Alertmanager severity labels to domain IncidentSeverity
+# --- Severity Mapping ---
 _SEVERITY_MAP: dict[str, IncidentSeverity] = {
     "CRITICAL": IncidentSeverity.CRITICAL,
     "HIGH": IncidentSeverity.HIGH,
@@ -32,7 +33,7 @@ class AlertService:
 
     # --- Public Ingestion API ---
     async def process_alertmanager_webhook(
-        self, payload: AlertmanagerPayload
+        self, payload: AlertmanagerPayload, auto_investigate: bool = True
     ) -> tuple[IncidentModel, AlertIngestResponse]:
         """Convert an Alertmanager webhook payload into a tracked incident idempotently."""
         fingerprint = payload.primary_fingerprint
@@ -75,6 +76,7 @@ class AlertService:
             title=title,
             severity=severity,
             summary=summary,
+            auto_investigate=auto_investigate,
         )
 
     # --- Private Handlers ---
@@ -86,6 +88,7 @@ class AlertService:
         title: str,
         severity: IncidentSeverity,
         summary: str,
+        auto_investigate: bool = True,
     ) -> tuple[IncidentModel, AlertIngestResponse]:
         """Process firing alerts idempotently by checking for an active incident fingerprint."""
         # We match incoming alerts via unique fingerprints to identify recurring issues
@@ -138,6 +141,10 @@ class AlertService:
                 severity=severity.value,
             )
             response_status = "created"
+
+            # Launch non-blocking background investigation without delaying webhook response
+            if auto_investigate:
+                trigger_background_investigation(incident.id)
 
         response = AlertIngestResponse(
             status=response_status,

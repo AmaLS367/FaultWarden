@@ -59,26 +59,47 @@ class PrometheusSettings(BaseModel):
     """Prometheus integration settings."""
 
     url: str = Field(default="http://localhost:9090", description="Prometheus base URL")
-    timeout_seconds: float = Field(default=10.0, description="HTTP request timeout in seconds")
+    timeout_seconds: float = Field(default=2.0, description="HTTP request timeout in seconds")
 
 
 class LokiSettings(BaseModel):
     """Grafana Loki log ingestion settings."""
 
     url: str = Field(default="http://localhost:3100", description="Loki base URL")
-    timeout_seconds: float = Field(default=10.0, description="HTTP request timeout in seconds")
+    timeout_seconds: float = Field(default=2.0, description="HTTP request timeout in seconds")
 
 
 class LLMSettings(BaseModel):
-    """LLM provider settings (for future investigation nodes)."""
+    """LLM provider settings for investigation reasoning."""
 
     provider: str = Field(
-        default="openai", description="LLM provider name (e.g. openai, anthropic)"
+        default="openai", description="LLM provider name (e.g. openai, anthropic, mock)"
     )
     model: str = Field(default="gpt-4o", description="Target model identifier")
     api_key: str = Field(default="", description="API key for LLM provider")
+    base_url: str | None = Field(
+        default=None, description="Custom base URL for OpenAI-compatible LLM endpoints"
+    )
     temperature: float = Field(default=0.1, description="Sampling temperature")
     max_tokens: int = Field(default=4096, description="Max response tokens")
+
+
+class InvestigationSettings(BaseModel):
+    """LangGraph AI incident investigation settings."""
+
+    max_iterations: int = Field(
+        default=3, description="Maximum bounded loop iterations for evidence collection"
+    )
+    confidence_threshold: float = Field(
+        default=0.75, description="Minimum confidence score required to verify root cause"
+    )
+    metrics_lookback_minutes: int = Field(
+        default=15, description="Lookback window in minutes for metrics queries"
+    )
+    logs_lookback_minutes: int = Field(
+        default=15, description="Lookback window in minutes for logs queries"
+    )
+    logs_limit: int = Field(default=100, description="Max log lines to fetch from Loki per query")
 
 
 class TelemetrySettings(BaseModel):
@@ -131,10 +152,18 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     llm_provider: str = "openai"
-    llm_model: str = "gpt-5.6"
+    llm_model: str = "gpt-4o"
     llm_api_key: str = ""
+    llm_base_url: str | None = None
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
+
+    # --- Investigation ---
+    investigation_max_iterations: int = 3
+    investigation_confidence_threshold: float = 0.75
+    investigation_metrics_lookback_minutes: int = 15
+    investigation_logs_lookback_minutes: int = 15
+    investigation_logs_limit: int = 100
 
     # --- Telemetry ---
     otel_service_name: str = "faultwarden"
@@ -205,8 +234,20 @@ class Settings(BaseSettings):
             provider=self.llm_provider,
             model=self.llm_model,
             api_key=self.llm_api_key,
+            base_url=self.llm_base_url,
             temperature=self.llm_temperature,
             max_tokens=self.llm_max_tokens,
+        )
+
+    @property
+    def investigation(self) -> InvestigationSettings:
+        """Return the grouped investigation settings."""
+        return InvestigationSettings(
+            max_iterations=self.investigation_max_iterations,
+            confidence_threshold=self.investigation_confidence_threshold,
+            metrics_lookback_minutes=self.investigation_metrics_lookback_minutes,
+            logs_lookback_minutes=self.investigation_logs_lookback_minutes,
+            logs_limit=self.investigation_logs_limit,
         )
 
     @property

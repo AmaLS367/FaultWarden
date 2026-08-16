@@ -1,6 +1,6 @@
 """Grafana Loki client and LogsProvider protocol."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
@@ -42,16 +42,18 @@ class LokiClient(LogsProvider):
         self._base_url = self._settings.url.rstrip("/")
         self._timeout = self._settings.timeout_seconds
 
+    # --- Health Check ---
     async def check_health(self) -> bool:
         """Check if Loki is ready."""
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=3.0) as client:
+            async with httpx.AsyncClient(base_url=self._base_url, timeout=0.3) as client:
                 resp = await client.get("/ready")
                 return resp.status_code == 200
         except Exception as exc:
-            logger.warning("loki_health_check_failed", error=str(exc))
+            logger.debug("loki_health_check_failed", error=str(exc))
             return False
 
+    # --- Direct LogQL Range Query ---
     async def query_range(
         self,
         query: str,
@@ -59,8 +61,15 @@ class LokiClient(LogsProvider):
         end: datetime,
         limit: int = 100,
     ) -> list[LogEntry]:
-        """Query Loki using LogQL."""
-        # Convert datetime to nanoseconds since Unix epoch
+        """Query Loki using LogQL with bounded time limits and volume caps."""
+        # Enforce maximum query range of 2 hours to avoid unbounded scans
+        max_duration = timedelta(hours=2)
+        if (end - start) > max_duration:
+            start = end - max_duration
+
+        # Clamp limit to prevent excessive memory consumption
+        clamped_limit = max(1, min(limit, 500))
+
         start_ns = int(start.timestamp() * 1e9)
         end_ns = int(end.timestamp() * 1e9)
 
@@ -68,7 +77,7 @@ class LokiClient(LogsProvider):
             "query": query,
             "start": str(start_ns),
             "end": str(end_ns),
-            "limit": str(limit),
+            "limit": str(clamped_limit),
             "direction": "BACKWARD",
         }
 
@@ -83,6 +92,34 @@ class LokiClient(LogsProvider):
 
         return self._parse_result(data)
 
+    # --- Bounded Domain Query Helpers ---
+    async def get_service_logs(
+        self,
+        service_name: str,
+        start: datetime,
+        end: datetime,
+        level: str | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        """Query logs for a given service with optional log level filtering."""
+        clean_service = service_name.replace('"', "").replace("'", "").strip()
+        base_selector = f'{{service="{clean_service}"}}'
+        if level:
+            clean_level = level.upper().strip()
+            query = f'{base_selector} |= "{clean_level}"'
+        else:
+            query = base_selector
+
+        try:
+            return await self.query_range(query, start, end, limit=limit)
+        except Exception:
+            # Fallback to job label if service label yields nothing or fails
+            job_query = f'{{job="{clean_service}"}}'
+            if level:
+                job_query = f'{job_query} |= "{level.upper().strip()}"'
+            return await self.query_range(job_query, start, end, limit=limit)
+
+    # --- Result Parsing ---
     def _parse_result(self, payload: dict[str, Any]) -> list[LogEntry]:
         """Flatten Loki's stream/values response shape into LogEntry objects."""
         entries: list[LogEntry] = []
@@ -98,12 +135,18 @@ class LokiClient(LogsProvider):
             for val in values:
                 # val is [timestamp_ns_string, log_line]
                 ts_ns = int(val[0])
-                ts = datetime.fromtimestamp(ts_ns / 1e9)
+                ts = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC)
                 message = val[1]
+                level = stream_labels.get("level", "INFO").upper()
+                if "ERROR" in message.upper() or "EXCEPTION" in message.upper():
+                    level = "ERROR"
+                elif "WARN" in message.upper():
+                    level = "WARNING"
+
                 entries.append(
                     LogEntry(
                         timestamp=ts,
-                        level=stream_labels.get("level", "INFO").upper(),
+                        level=level,
                         message=message,
                         labels=stream_labels,
                     )

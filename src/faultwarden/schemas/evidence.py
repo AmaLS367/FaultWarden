@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 class EvidenceType(StrEnum):
     """Category of a collected piece of investigation evidence."""
 
+    ALERT = "ALERT"
     METRIC = "METRIC"
     LOG = "LOG"
     TRACE = "TRACE"
@@ -74,8 +75,18 @@ class EvidenceItem(BaseModel):
 
     id: str
     evidence_type: EvidenceType
-    source: str
+    source: str = Field(description="Telemetry origin (e.g. prometheus, loki, alertmanager)")
     collected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    data: dict[str, Any] = Field(default_factory=dict)
-    summary: str
+    confidence: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Reliability score of source (0.0 to 1.0)"
+    )
+    relevance: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Relevance to investigated incident (0.0 to 1.0)"
+    )
+    summary: str = Field(description="Human/LLM readable concise summary of this evidence")
+    data: dict[str, Any] = Field(
+        default_factory=dict, description="Raw structured payload or metric values"
+    )
+    query_reference: str | None = Field(
+        default=None, description="PromQL or LogQL query that produced this evidence"
+    )

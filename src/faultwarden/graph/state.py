@@ -3,6 +3,7 @@
 import operator
 from typing import Annotated, Any, TypedDict
 
+from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import (
     DeploymentEvent,
     EvidenceItem,
@@ -19,8 +20,9 @@ class IncidentInvestigationState(TypedDict, total=False):
 
     # --- Primary Identifiers & Context ---
     incident_id: str
+    incident_context: dict[str, Any]
     alert: dict[str, Any]
-    incident: dict[str, Any] | None
+    classification: IncidentClassification | None
 
     # --- Telemetry & Collected Evidence (appended across steps) ---
     evidence: Annotated[list[EvidenceItem], operator.add]
@@ -34,9 +36,14 @@ class IncidentInvestigationState(TypedDict, total=False):
     selected_hypothesis: Hypothesis | None
     root_cause: RootCauseAnalysis | None
 
-    # --- Remediation ---
+    # --- Remediation Proposals (Read-Only) ---
     remediation_proposals: Annotated[list[RemediationProposal], operator.add]
 
-    # --- Workflow Metadata & Error Tracking ---
+    # --- Iterative Loop Control & Missing Telemetry ---
     iteration_count: int
+    missing_evidence_queries: list[str]
+    investigation_status: str
+    summary: str
+
+    # --- Error Tracking ---
     errors: Annotated[list[str], operator.add]
