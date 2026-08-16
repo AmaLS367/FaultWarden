@@ -135,10 +135,11 @@ async def test_run_investigation_stops_automation_after_max_attempts(
 
     # Pre-seed 3 prior actions (any decision) to hit the default max_remediation_attempts_per_incident=3,
     # regardless of which decision type this run's primary proposal would otherwise receive.
+    prior_action_ids: set[str] = set()
     for _ in range(3):
         prior_proposal = _make_proposal(str(incident.id))
         await audit_service.create_proposal(prior_proposal)
-        await audit_service.create_action_decision(
+        prior_action = await audit_service.create_action_decision(
             AllowedAction(
                 action=ResetDemoFailureExecutableAction(
                     id=str(uuid4()),
@@ -150,12 +151,20 @@ async def test_run_investigation_stops_automation_after_max_attempts(
                 )
             )
         )
+        prior_action_ids.add(str(prior_action.id))
     await db_session.commit()
 
     updated_incident = await investigation_service.run_investigation(incident.id)
 
     actions = await audit_service.list_actions_for_incident(incident.id)
-    newest = max(actions, key=lambda a: a.created_at)
+    # Identify the action created by this run by exclusion, rather than by created_at ordering:
+    # SQLite's CURRENT_TIMESTAMP has only 1-second resolution, so rows inserted within the same
+    # second (routine for a fast in-process test) can tie, making max(..., key=created_at)
+    # non-deterministic. This was observed passing locally but failing on CI for exactly that
+    # reason.
+    newest_candidates = [a for a in actions if str(a.id) not in prior_action_ids]
+    assert len(newest_candidates) == 1
+    newest = newest_candidates[0]
     assert newest.decision == PolicyDecisionType.REJECTED
     assert "Maximum remediation attempts" in (newest.reason or "")
     mock_executor.assert_not_called()
