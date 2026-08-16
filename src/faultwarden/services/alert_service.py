@@ -151,10 +151,17 @@ class AlertService:
             )
             response_status = "created"
 
-            # Launch non-blocking background investigation without delaying webhook response.
-            # BackgroundTasks runs this only after the response (and thus the session commit
-            # in get_db_session) has completed, so the incident row is guaranteed visible.
             if auto_investigate:
+                # Commit explicitly before scheduling the background task. FastAPI's
+                # yield-dependency cleanup (which commits this session) is not guaranteed to
+                # run before BackgroundTasks execute — Starlette invokes a response's
+                # background tasks from within the same call that sends the response, which
+                # can happen before the request's dependency exit stack unwinds. Without this
+                # explicit commit, run_background_investigation (on its own DB connection) can
+                # see the incident row as not-yet-committed and fail with "not found" — this
+                # was observed for real running the Docker stack end-to-end, not caught by the
+                # unit tests since they share a single in-memory SQLite connection.
+                await self.incident_service.session.commit()
                 background_tasks.add_task(run_background_investigation, incident.id)
 
         response = AlertIngestResponse(
