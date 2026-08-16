@@ -1,10 +1,11 @@
 # FaultWarden
 
-[![CI](https://github.com/faultwarden/faultwarden/actions/workflows/ci.yml/badge.svg)](https://github.com/faultwarden/faultwarden/actions)
+[![CI](https://github.com/AmaLS367/FaultWarden/actions/workflows/ci.yml/badge.svg)](https://github.com/AmaLS367/FaultWarden/actions/workflows/ci.yml)
+[![Docker](https://github.com/AmaLS367/FaultWarden/actions/workflows/docker.yml/badge.svg)](https://github.com/AmaLS367/FaultWarden/actions/workflows/docker.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-orange.svg)](https://langchain-ai.github.io/langgraph/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 **FaultWarden** is an autonomous AI SRE / Incident Response Engineer platform. It connects with modern production observability infrastructure (Prometheus, Alertmanager, Loki, OpenTelemetry) to receive alerts, orchestrate stateful investigations via **LangGraph**, generate verified root-cause hypotheses, and propose tier-classified remediations.
 
@@ -45,6 +46,7 @@ Produces tier-classified remediation proposal
 
 ```text
 faultwarden/
+├── .github/workflows/         # CI/CD pipelines (ci.yml, docker.yml)
 ├── src/
 │   └── faultwarden/
 │       ├── api/               # FastAPI routers, dependencies, endpoints (/health, /alerts, /incidents)
@@ -62,7 +64,9 @@ faultwarden/
 ├── tests/                     # Unit and integration test suite (pytest + pytest-asyncio)
 ├── docs/                      # ARCHITECTURE.md (Deep dive into safety models and graph flow)
 ├── docker-compose.yml         # 8-service local development stack
+├── Dockerfile                 # Multi-stage production container build
 ├── pyproject.toml             # Dependencies and strict tool configuration (Ruff, Mypy, Pytest)
+├── LICENSE                    # Apache 2.0 License
 └── AGENTS.md                  # Development guidelines for AI coding agents
 ```
 
@@ -80,7 +84,7 @@ faultwarden/
 
 ```bash
 # Clone the repository
-git clone https://github.com/faultwarden/faultwarden.git
+git clone https://github.com/AmaLS367/FaultWarden.git
 cd FaultWarden
 
 # Create virtual environment and install dependencies
@@ -200,3 +204,9 @@ FaultWarden enforces a strict 3-tier safety architecture:
 * **Level 2 — Human Approval Required (Manual Gate)**: Rollback deployments, alter configs, restart databases, mutate persistent data.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full architectural specifications.
+
+---
+
+## License
+
+FaultWarden is open-source software licensed under the [Apache 2.0 License](LICENSE).
