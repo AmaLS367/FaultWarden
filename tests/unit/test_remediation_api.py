@@ -77,6 +77,7 @@ class _OverrideInvestigationServiceCtx:
             return InvestigationService(
                 incident_service=IncidentService(session=self._db_session),
                 remediation_executor=self._executor,
+                remediation_validator=AsyncMock(return_value=True),
             )
 
         app.dependency_overrides[get_investigation_service] = _override

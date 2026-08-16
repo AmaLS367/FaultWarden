@@ -17,7 +17,10 @@ from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import get_production_graph
-from faultwarden.integrations.executors import execute_remediation_action
+from faultwarden.integrations.executors import (
+    check_remediation_recovered,
+    execute_remediation_action,
+)
 from faultwarden.integrations.llm.provider import LLMProvider, get_llm_provider
 from faultwarden.integrations.loki.client import LogsProvider, LokiClient
 from faultwarden.integrations.prometheus.client import MetricsProvider, PrometheusClient
@@ -63,20 +66,23 @@ class InvestigationService:
         remediation_executor: (
             Callable[[RemediationAction], Awaitable[RemediationResult]] | None
         ) = None,
+        remediation_validator: (Callable[[RemediationAction], Awaitable[bool]] | None) = None,
     ) -> None:
         self.incident_service = incident_service
         self.metrics_provider = metrics_provider
         self.logs_provider = logs_provider
         self.llm_provider = llm_provider
         self.remediation_executor = remediation_executor
+        self.remediation_validator = remediation_validator
 
     def _build_run_config(self, thread_id: str) -> RunnableConfig:
-        """Construct RunnableConfig supplying all four configurable dependencies and the thread_id."""
+        """Construct RunnableConfig supplying all configurable dependencies and the thread_id."""
         settings = get_settings()
         metrics = self.metrics_provider or PrometheusClient(settings.prometheus)
         logs = self.logs_provider or LokiClient(settings.loki)
         llm = self.llm_provider or get_llm_provider()
         executor = self.remediation_executor or execute_remediation_action
+        validator = self.remediation_validator or check_remediation_recovered
 
         return {
             "configurable": {
@@ -85,8 +91,52 @@ class InvestigationService:
                 "logs_provider": logs,
                 "llm_provider": llm,
                 "remediation_executor": executor,
+                "remediation_validator": validator,
             }
         }
+
+    def _decide_terminal_status(
+        self,
+        final_state: dict[str, Any],
+        *,
+        proposals_list: list[RemediationProposal],
+        root_cause_val: Any,
+        incident_id_str: str,
+    ) -> tuple[IncidentStatus, str | None]:
+        """Decide the incident's terminal status/resolution text after a completed (non-paused) graph run.
+
+        Only a validated recovery (remediation_validation_passed is True) resolves the incident.
+        A remediation that executed but failed validation leaves the incident active
+        (REMEDIATION_PROPOSED) rather than falsely marking it RESOLVED or terminally FAILED.
+        """
+        validation_passed = final_state.get("remediation_validation_passed")
+        rem_result = final_state.get("remediation_result")
+
+        if validation_passed is True:
+            return (
+                IncidentStatus.RESOLVED,
+                f"Remediation executed and validated: {rem_result.summary if rem_result else 'recovery confirmed.'}",
+            )
+        if validation_passed is False:
+            return (
+                IncidentStatus.REMEDIATION_PROPOSED,
+                "Remediation executed but post-remediation validation did not confirm recovery; "
+                "incident remains active for further investigation or manual intervention.",
+            )
+        if proposals_list:
+            return (IncidentStatus.REMEDIATION_PROPOSED, None)
+        if root_cause_val:
+            return (IncidentStatus.ROOT_CAUSE_IDENTIFIED, None)
+
+        # propose_remediation_node always emits a fallback proposal before finalize_investigation
+        # runs, so this branch should be unreachable in practice. Guard against it anyway: never
+        # leave an incident stuck in INVESTIGATING forever if that invariant is ever broken.
+        logger.warning(
+            "investigation_completed_without_output",
+            incident_id=incident_id_str,
+            graph_investigation_status=final_state.get("investigation_status"),
+        )
+        return (IncidentStatus.FAILED, None)
 
     async def _persist_remediation(
         self,
@@ -185,7 +235,6 @@ class InvestigationService:
             summary_val = final_state.get("summary", "")
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
-            graph_investigation_status = final_state.get("investigation_status")
 
             # Check if graph paused on interrupt (e.g. Level-2 approval required)
             if _is_graph_paused(final_state):
@@ -221,21 +270,12 @@ class InvestigationService:
             # Completed normally
             await self._persist_remediation(final_state, audit_service)
 
-            if proposals_list:
-                next_status = IncidentStatus.REMEDIATION_PROPOSED
-            elif root_cause_val:
-                next_status = IncidentStatus.ROOT_CAUSE_IDENTIFIED
-            else:
-                # propose_remediation_node always emits a fallback proposal before
-                # finalize_investigation runs, so this branch should be unreachable in practice.
-                # Guard against it anyway: never leave an incident stuck in INVESTIGATING forever
-                # if that invariant is ever broken by a future change to that node.
-                logger.warning(
-                    "investigation_completed_without_output",
-                    incident_id=incident_id_str,
-                    graph_investigation_status=graph_investigation_status,
-                )
-                next_status = IncidentStatus.FAILED
+            next_status, resolution_text = self._decide_terminal_status(
+                final_state,
+                proposals_list=proposals_list,
+                root_cause_val=root_cause_val,
+                incident_id_str=incident_id_str,
+            )
 
             update_data = IncidentUpdate(
                 status=next_status,
@@ -246,6 +286,7 @@ class InvestigationService:
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,
+                resolution=resolution_text,
             )
 
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)
@@ -364,7 +405,6 @@ class InvestigationService:
             summary_val = final_state.get("summary", "")
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
-            graph_investigation_status = final_state.get("investigation_status")
 
             if _is_graph_paused(final_state):
                 await self._persist_remediation(final_state, audit_service)
@@ -395,17 +435,12 @@ class InvestigationService:
             # Completed normally
             await self._persist_remediation(final_state, audit_service)
 
-            if proposals_list:
-                next_status = IncidentStatus.REMEDIATION_PROPOSED
-            elif root_cause_val:
-                next_status = IncidentStatus.ROOT_CAUSE_IDENTIFIED
-            else:
-                logger.warning(
-                    "investigation_resume_completed_without_output",
-                    incident_id=incident_id_str,
-                    graph_investigation_status=graph_investigation_status,
-                )
-                next_status = IncidentStatus.FAILED
+            next_status, resolution_text = self._decide_terminal_status(
+                final_state,
+                proposals_list=proposals_list,
+                root_cause_val=root_cause_val,
+                incident_id_str=incident_id_str,
+            )
 
             update_data = IncidentUpdate(
                 status=next_status,
@@ -416,6 +451,7 @@ class InvestigationService:
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,
+                resolution=resolution_text,
             )
 
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)

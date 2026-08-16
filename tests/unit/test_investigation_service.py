@@ -324,6 +324,7 @@ async def test_investigation_service_resume_approval(
     investigation_service = InvestigationService(
         incident_service=incident_service,
         remediation_executor=mock_executor,
+        remediation_validator=AsyncMock(return_value=True),
     )
 
     create_dto = IncidentCreate(
@@ -346,7 +347,10 @@ async def test_investigation_service_resume_approval(
         approved_by="admin@faultwarden.io",
     )
 
-    assert resumed_incident.status == IncidentStatus.REMEDIATION_PROPOSED
+    # With a validator confirming recovery, a successfully executed and validated remediation
+    # resolves the incident (see InvestigationService._decide_terminal_status).
+    assert resumed_incident.status == IncidentStatus.RESOLVED
+    assert resumed_incident.resolution is not None
     mock_executor.assert_awaited_once()
 
     audit_service = RemediationAuditService(session=db_session)
@@ -420,6 +424,7 @@ async def test_investigation_service_duplicate_resume_fails(
     investigation_service = InvestigationService(
         incident_service=incident_service,
         remediation_executor=mock_executor,
+        remediation_validator=AsyncMock(return_value=True),
     )
 
     create_dto = IncidentCreate(

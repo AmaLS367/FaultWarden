@@ -95,3 +95,15 @@ def get_remediation_executor_from_config(
     from faultwarden.integrations.executors import execute_remediation_action
 
     return execute_remediation_action
+
+
+def get_remediation_validator_from_config(
+    config: RunnableConfig | None,
+) -> Callable[[RemediationAction], Awaitable[bool]]:
+    """Resolve the post-remediation recovery-check dispatcher injected via graph config, or use the real one."""
+    validator = _configurable(config).get("remediation_validator")
+    if validator is not None:
+        return validator  # type: ignore[no-any-return]
+    from faultwarden.integrations.executors import check_remediation_recovered
+
+    return check_remediation_recovered

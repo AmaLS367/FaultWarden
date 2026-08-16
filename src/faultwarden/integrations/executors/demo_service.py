@@ -68,6 +68,27 @@ class DemoServiceExecutor:
 
         return None, last_exc
 
+    async def check_recovered(self) -> bool:
+        """Level-0 read-only post-remediation check: is fault injection still disabled?
+
+        Independent of reset_failure_mode's own immediate post-condition check — this runs
+        later, after a stabilization delay, as a separate verification pass rather than trusting
+        the executor's self-reported success.
+        """
+        resp, exc = await self._request_with_retry("GET", "/debug/error-mode")
+        if resp is None or resp.status_code != 200:
+            logger.warning(
+                "demo_service_validation_check_failed",
+                error=str(exc) if exc else f"HTTP {resp.status_code if resp else 'no response'}",
+            )
+            return False
+        try:
+            payload = resp.json()
+            return bool(payload.get("error_mode") is False)
+        except Exception as parse_exc:
+            logger.warning("demo_service_validation_parse_failed", error=str(parse_exc))
+            return False
+
     async def reset_failure_mode(
         self, action: ResetDemoFailureExecutableAction
     ) -> RemediationResult:

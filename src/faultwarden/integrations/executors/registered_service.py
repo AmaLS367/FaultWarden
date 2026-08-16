@@ -62,6 +62,21 @@ class RegisteredServiceExecutor:
 
         return None, last_exc
 
+    async def check_recovered(self) -> bool:
+        """Level-0 read-only post-remediation check: is the target reachable/healthy?
+
+        Since this executor's restart is a simulation (no real process control exists in v0.3),
+        "recovered" means the target is still reachable — there is no other real state to verify.
+        """
+        resp, exc = await self._check_health_with_retry()
+        if resp is None or resp.status_code != 200:
+            logger.warning(
+                "registered_service_validation_check_failed",
+                error=str(exc) if exc else f"HTTP {resp.status_code if resp else 'no response'}",
+            )
+            return False
+        return True
+
     async def restart(self, action: RestartRegisteredServiceExecutableAction) -> RemediationResult:
         """Simulated restart capability for the demo environment (no real process/container control).
 

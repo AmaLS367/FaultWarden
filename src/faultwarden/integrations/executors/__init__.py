@@ -13,6 +13,7 @@ from faultwarden.schemas.remediation import (
 __all__ = [
     "DemoServiceExecutor",
     "RegisteredServiceExecutor",
+    "check_remediation_recovered",
     "execute_remediation_action",
 ]
 
@@ -28,4 +29,15 @@ async def execute_remediation_action(action: RemediationAction) -> RemediationRe
     # this function, this line should be unreachable and typed as such
     raise RemediationExecutionError(
         "dispatcher", f"No executor registered for action type: {action.action_type}"
+    )
+
+
+async def check_remediation_recovered(action: RemediationAction) -> bool:
+    """Type-safe dispatch to the correct executor's read-only post-remediation recovery check."""
+    if isinstance(action, ResetDemoFailureExecutableAction):
+        return await DemoServiceExecutor().check_recovered()
+    if isinstance(action, RestartRegisteredServiceExecutableAction):
+        return await RegisteredServiceExecutor().check_recovered()
+    raise RemediationExecutionError(
+        "dispatcher", f"No validator registered for action type: {action.action_type}"
     )

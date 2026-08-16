@@ -141,9 +141,35 @@ def _create_mock_executor() -> AsyncMock:
     return mock_exec
 
 
+def _create_mock_validator() -> AsyncMock:
+    """Create a mock post-remediation validator that always reports recovery, avoiding real HTTP/sleep."""
+    mock_validator = AsyncMock()
+
+    async def _fake_validator(_action: RemediationAction) -> bool:
+        return True
+
+    mock_validator.side_effect = _fake_validator
+    return mock_validator
+
+
+def _mock_zero_validation_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch get_settings in the execution node module so tests don't sleep the real stabilization delay."""
+    current_settings = get_settings()
+    zero_delay_settings = current_settings.model_copy(
+        update={"remediation_validation_delay_seconds": 0.0}
+    )
+    monkeypatch.setattr(
+        "faultwarden.graph.nodes.remediation_execution.get_settings",
+        lambda: zero_delay_settings,
+    )
+
+
 @pytest.mark.asyncio
-async def test_level_2_interrupt_and_approve_resume_executes_action() -> None:
+async def test_level_2_interrupt_and_approve_resume_executes_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test 1: Level-2 action pauses on interrupt, resume with APPROVE completes and executes once."""
+    _mock_zero_validation_delay(monkeypatch)
     checkpointer = InMemorySaver()
     graph = build_incident_graph(checkpointer=checkpointer)
 
@@ -158,12 +184,14 @@ async def test_level_2_interrupt_and_approve_resume_executes_action() -> None:
     )
     mock_llm = _create_mock_llm([level_2_candidate])
     mock_executor = _create_mock_executor()
+    mock_validator = _create_mock_validator()
 
     run_config = {
         "configurable": {
             "thread_id": "test-thread-l2-approve",
             "llm_provider": mock_llm,
             "remediation_executor": mock_executor,
+            "remediation_validator": mock_validator,
         }
     }
 
@@ -237,8 +265,11 @@ async def test_level_2_interrupt_and_reject_resume_skips_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_level_1_auto_execute_path_runs_without_pause() -> None:
+async def test_level_1_auto_execute_path_runs_without_pause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test 3: Level-1 proposal auto-executes immediately without reaching approval pause."""
+    _mock_zero_validation_delay(monkeypatch)
     checkpointer = InMemorySaver()
     graph = build_incident_graph(checkpointer=checkpointer)
 
@@ -252,12 +283,14 @@ async def test_level_1_auto_execute_path_runs_without_pause() -> None:
     )
     mock_llm = _create_mock_llm([level_1_candidate])
     mock_executor = _create_mock_executor()
+    mock_validator = _create_mock_validator()
 
     run_config = {
         "configurable": {
             "thread_id": "test-thread-l1-auto",
             "llm_provider": mock_llm,
             "remediation_executor": mock_executor,
+            "remediation_validator": mock_validator,
         }
     }
 
@@ -270,7 +303,9 @@ async def test_level_1_auto_execute_path_runs_without_pause() -> None:
     assert result_state.get("remediation_approval_decision") is None
     assert result_state.get("remediation_result") is not None
     assert result_state["remediation_result"].success is True
+    assert result_state["remediation_validation_passed"] is True
     mock_executor.assert_awaited_once()
+    mock_validator.assert_awaited_once()
 
 
 @pytest.mark.asyncio
