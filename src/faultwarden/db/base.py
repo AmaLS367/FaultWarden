@@ -11,8 +11,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import CHAR, TypeDecorator, TypeEngine
 
 
+# --- Custom Database Types ---
 class GUID(TypeDecorator[UUID]):
     """Platform-independent GUID type.
+
     Uses PostgreSQL's UUID type, otherwise uses CHAR(36).
     """
 
@@ -44,6 +46,7 @@ class GUID(TypeDecorator[UUID]):
         return UUID(value)
 
 
+# --- Declarative Base & Mixins ---
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy ORM models."""
 

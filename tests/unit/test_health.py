@@ -4,9 +4,11 @@ import pytest
 from httpx import AsyncClient
 
 
+# --- Health & Diagnostics Endpoint Tests ---
 @pytest.mark.asyncio
 async def test_health_endpoint(client: AsyncClient) -> None:
     """Verify /health returns 200 OK."""
+
     response = await client.get("/health")
     assert response.status_code == 200
     data = response.json()

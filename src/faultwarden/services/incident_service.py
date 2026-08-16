@@ -24,6 +24,7 @@ class IncidentService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    # --- Incident Creation ---
     async def create_incident(self, data: IncidentCreate) -> IncidentModel:
         """Create and persist a new incident record."""
         # Convert nested Pydantic models to dicts for JSON storage
@@ -38,6 +39,9 @@ class IncidentService:
             severity=data.severity,
             source=data.source,
             summary=data.summary,
+            fingerprint=data.fingerprint,
+            service=data.service,
+            alert_status=data.alert_status or "firing",
             alert_payload=data.alert_payload,
             evidence=evidence_dicts,
             hypotheses=hypotheses_dicts,
@@ -54,6 +58,8 @@ class IncidentService:
             "incident_created",
             incident_id=str(incident.id),
             title=incident.title,
+            fingerprint=incident.fingerprint,
+            service=incident.service,
             severity=incident.severity.value
             if hasattr(incident.severity, "value")
             else str(incident.severity),
@@ -62,6 +68,21 @@ class IncidentService:
             else str(incident.status),
         )
         return incident
+
+    # --- Incident Lookup & Retrieval ---
+    async def find_active_by_fingerprint(self, fingerprint: str) -> IncidentModel | None:
+        """Find the latest active (non-resolved) incident matching a given alert fingerprint."""
+        stmt = (
+            select(IncidentModel)
+            .where(
+                IncidentModel.fingerprint == fingerprint,
+                IncidentModel.status != IncidentStatus.RESOLVED,
+            )
+            .order_by(desc(IncidentModel.created_at))
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_incident(self, incident_id: UUID | str) -> IncidentModel:
         """Retrieve a single incident by ID or raise IncidentNotFoundError."""
@@ -86,11 +107,16 @@ class IncidentService:
                 stmt = stmt.where(IncidentModel.severity == filters.severity)
             if filters.source:
                 stmt = stmt.where(IncidentModel.source == filters.source)
+            if filters.fingerprint:
+                stmt = stmt.where(IncidentModel.fingerprint == filters.fingerprint)
+            if filters.service:
+                stmt = stmt.where(IncidentModel.service == filters.service)
             stmt = stmt.limit(filters.limit).offset(filters.offset)
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    # --- Incident Updates & Lifecycle Transitions ---
     async def update_incident(
         self, incident_id: UUID | str, update_data: IncidentUpdate
     ) -> IncidentModel:

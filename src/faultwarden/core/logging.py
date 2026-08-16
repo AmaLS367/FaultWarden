@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 
+# --- Logging Configuration ---
 def setup_logging(log_level: str = "INFO", environment: str = "development") -> None:
     """Configure structlog and standard logging handlers."""
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
@@ -62,6 +63,7 @@ def setup_logging(log_level: str = "INFO", environment: str = "development") -> 
     logging.getLogger("asyncpg").setLevel(logging.WARNING)
 
 
+# --- Logger Factory ---
 def get_logger(name: str = "faultwarden") -> Any:
     """Return a configured structlog logger."""
     return structlog.get_logger(name)

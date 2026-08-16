@@ -8,6 +8,7 @@ from faultwarden.core.logging import get_logger
 logger = get_logger("faultwarden.integrations.llm")
 
 
+# --- Provider Protocol ---
 @runtime_checkable
 class LLMProvider(Protocol):
     """Abstract interface for LLM operations."""
@@ -26,6 +27,7 @@ class LLMProvider(Protocol):
         ...
 
 
+# --- Placeholder Implementation ---
 class PlaceholderLLMProvider(LLMProvider):
     """Deterministic placeholder LLM provider for scaffolding without external API calls."""
 

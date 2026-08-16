@@ -10,6 +10,7 @@ from faultwarden.telemetry.setup import INCIDENTS_CREATED_TOTAL
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
+# --- Ingestion Webhooks ---
 @router.post(
     "/alertmanager",
     status_code=status.HTTP_201_CREATED,
@@ -23,10 +24,12 @@ async def ingest_alertmanager_alert(
 ) -> AlertIngestResponse:
     """Ingest webhook from Alertmanager and create Incident."""
     incident, response = await alert_service.process_alertmanager_webhook(payload)
-    INCIDENTS_CREATED_TOTAL.labels(
-        source="alertmanager",
-        severity=incident.severity.value
-        if hasattr(incident.severity, "value")
-        else str(incident.severity),
-    ).inc()
+    # Only increment creation counter for new incidents, excluding idempotent updates
+    if response.status == "created":
+        INCIDENTS_CREATED_TOTAL.labels(
+            source="alertmanager",
+            severity=incident.severity.value
+            if hasattr(incident.severity, "value")
+            else str(incident.severity),
+        ).inc()
     return response

@@ -6,6 +6,7 @@ from faultwarden.api.routes.alerts import router as alerts_router
 from faultwarden.api.routes.health import router as health_router
 from faultwarden.api.routes.incidents import router as incidents_router
 
+# --- Sub-Router Aggregation ---
 api_router = APIRouter()
 
 # Health endpoints available at both /health and /api/v1/health

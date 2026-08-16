@@ -14,6 +14,7 @@ from faultwarden.core.config import DatabaseSettings, get_settings
 from faultwarden.db.base import Base
 
 
+# --- Engine Management ---
 def create_engine(db_settings: DatabaseSettings | None = None) -> AsyncEngine:
     """Create a new async SQLAlchemy engine."""
     settings = db_settings or get_settings().database
@@ -43,6 +44,7 @@ def get_engine() -> AsyncEngine:
     return create_engine()
 
 
+# --- Session Management ---
 @lru_cache(maxsize=1)
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Get cached async session maker."""
@@ -69,6 +71,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+# --- Schema Initialization ---
 async def init_db_models(engine: AsyncEngine | None = None) -> None:
     """Initialize database tables directly (for SQLite/test setups)."""
     target_engine = engine or get_engine()

@@ -10,13 +10,17 @@ import faultwarden.main as main_module
 from faultwarden.core.config import Settings
 
 
+# --- Helper Utilities ---
 def _cors_middleware_kwargs(app: FastAPI) -> dict[str, Any]:
+    """Extract CORS middleware configuration keyword arguments."""
     entry = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
     return dict(entry.kwargs)
 
 
+# --- CORS Middleware Configuration Tests ---
 def test_wildcard_cors_origin_disables_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """A wildcard origin config must not enable credentials (browsers reject the combo)."""
+
     settings = Settings(cors_origins="*")
     monkeypatch.setattr(main_module, "get_settings", lambda: settings)
 

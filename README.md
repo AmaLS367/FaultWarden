@@ -121,6 +121,7 @@ docker compose up -d --build
 | :-------------------------------- | :------------------------ | :---------------------------------------- |
 | **FaultWarden API**         | `http://localhost:8000` | Incident response orchestrator            |
 | **Demo Service**            | `http://localhost:8001` | Breakable sample microservice             |
+| **Traffic Generator**       | *(internal)*              | Automatic background traffic loop (1 req/s)|
 | **Prometheus**              | `http://localhost:9090` | Metrics collection and alerting           |
 | **Alertmanager**            | `http://localhost:9093` | Alert grouping and webhook routing        |
 | **Loki**                    | `http://localhost:3100` | Log stream ingestion                      |
@@ -130,29 +131,45 @@ docker compose up -d --build
 
 ---
 
-## Simulating an Incident
+## End-to-End Demo Procedure
 
-1. **Trigger Error Injection** in the demo service:
+With the stack running (`docker compose up -d`), background traffic is automatically generated against `demo-service`.
+
+1. **Check initial state (Healthy)**:
+
+   ```bash
+   curl http://localhost:8001/health
+   # Returns: {"status": "ok", "service": "demo-service"}
+   ```
+
+2. **Trigger intentional failure** in the demo service:
 
    ```bash
    curl -X POST http://localhost:8001/debug/error-mode/true
+   # Returns: {"status": "updated", "error_mode": true, ...}
    ```
-2. **Generate Traffic** to trigger 500 errors:
+
+3. **Observe automatic incident creation**:
+   - Background requests begin returning HTTP 500.
+   - Prometheus records elevated `http_requests_total{status="500"}`.
+   - Prometheus rule `DemoServiceHighErrorRate` fires.
+   - Alertmanager forwards the webhook to FaultWarden.
+   - FaultWarden idempotently creates a persisted Incident in PostgreSQL.
 
    ```bash
-   for i in {1..20}; do curl -s http://localhost:8001/ ; sleep 0.5; done
-   ```
-3. **Prometheus & Alertmanager** will detect elevated 5xx errors and send a webhook to FaultWarden:
-
-   ```bash
-   # Check incidents in FaultWarden
+   # Wait ~15-20s, then query incidents API:
    curl http://localhost:8000/api/v1/incidents
    ```
-4. **Recover the Demo Service**:
+
+4. **Disable error mode and observe recovery**:
 
    ```bash
    curl -X POST http://localhost:8001/debug/error-mode/false
+   # Returns: {"status": "updated", "error_mode": false, ...}
    ```
+
+   Prometheus resolves the alert condition, Alertmanager sends a resolved webhook, and FaultWarden updates `alert_status="resolved"`.
+
 
 ---
 

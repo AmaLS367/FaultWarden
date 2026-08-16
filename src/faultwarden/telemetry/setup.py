@@ -8,7 +8,7 @@ from faultwarden.core.logging import get_logger
 
 logger = get_logger("faultwarden.telemetry")
 
-# --- Core application metrics ---
+# --- Prometheus Metric Registrations ---
 HTTP_REQUESTS_TOTAL = Counter(
     "faultwarden_http_requests_total",
     "Total HTTP requests received by FaultWarden",
@@ -28,6 +28,7 @@ INCIDENTS_CREATED_TOTAL = Counter(
 )
 
 
+# --- Telemetry Initialization & Endpoint ---
 def setup_telemetry() -> None:
     """Initialize OpenTelemetry tracer and meter providers."""
     settings = get_settings().telemetry

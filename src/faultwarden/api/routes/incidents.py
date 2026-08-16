@@ -17,6 +17,7 @@ from faultwarden.services.incident_service import IncidentService
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
 
+# --- Query Routes ---
 @router.get(
     "",
     response_model=list[IncidentRead],
@@ -27,6 +28,8 @@ async def list_incidents(
     status_filter: IncidentStatus | None = Query(default=None, alias="status"),
     severity_filter: IncidentSeverity | None = Query(default=None, alias="severity"),
     source: str | None = Query(default=None),
+    fingerprint: str | None = Query(default=None),
+    service_name: str | None = Query(default=None, alias="service"),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     service: IncidentService = Depends(get_incident_service),
@@ -36,6 +39,8 @@ async def list_incidents(
         status=status_filter,
         severity=severity_filter,
         source=source,
+        fingerprint=fingerprint,
+        service=service_name,
         limit=limit,
         offset=offset,
     )
@@ -58,6 +63,7 @@ async def get_incident(
     return IncidentRead.model_validate(incident)
 
 
+# --- Mutation Routes ---
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,

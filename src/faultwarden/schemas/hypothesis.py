@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# --- Enums ---
 class HypothesisStatus(StrEnum):
     """Lifecycle status of a root-cause hypothesis as it is tested."""
 
@@ -17,6 +18,7 @@ class HypothesisStatus(StrEnum):
     INCONCLUSIVE = "INCONCLUSIVE"
 
 
+# --- Hypothesis Models ---
 class Hypothesis(BaseModel):
     """A generated root-cause hypothesis explaining the incident."""
 
@@ -44,6 +46,7 @@ class HypothesisVerificationResult(BaseModel):
     logs_checked: list[str] = Field(default_factory=list)
 
 
+# --- Root Cause Analysis ---
 class RootCauseAnalysis(BaseModel):
     """Final root-cause determination for an incident."""
 

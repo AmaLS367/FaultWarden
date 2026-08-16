@@ -12,12 +12,14 @@ from faultwarden.api.dependencies import get_db
 router = APIRouter(tags=["Health"])
 
 
+# --- Liveness Probe ---
 @router.get("/health", status_code=status.HTTP_200_OK)
 async def health() -> dict[str, str]:
     """Basic liveness probe."""
     return {"status": "ok", "service": "faultwarden"}
 
 
+# --- Readiness Probe ---
 @router.get("/ready", status_code=status.HTTP_200_OK)
 async def readiness(db: AsyncSession = Depends(get_db)) -> Any:
     """Readiness probe checking database connectivity."""

@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# --- Evidence Types ---
 class EvidenceType(StrEnum):
     """Category of a collected piece of investigation evidence."""
 
@@ -17,6 +18,7 @@ class EvidenceType(StrEnum):
     SYSTEM_STATE = "SYSTEM_STATE"
 
 
+# --- Specific Evidence Models ---
 class MetricDataPoint(BaseModel):
     """Single timestamped metric sample."""
 
@@ -66,6 +68,7 @@ class DeploymentEvent(BaseModel):
     description: str | None = None
 
 
+# --- Generic Evidence Container ---
 class EvidenceItem(BaseModel):
     """Generic structured container for any investigation evidence item."""
 

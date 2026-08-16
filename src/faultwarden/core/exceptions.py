@@ -3,6 +3,7 @@
 from typing import Any
 
 
+# --- Base Exception ---
 class FaultWardenError(Exception):
     """Base exception for all FaultWarden errors."""
 
@@ -12,6 +13,7 @@ class FaultWardenError(Exception):
         self.details = details or {}
 
 
+# --- Domain Exceptions ---
 class IncidentNotFoundError(FaultWardenError):
     """Raised when an incident ID does not exist."""
 
@@ -29,6 +31,7 @@ class InvalidAlertPayloadError(FaultWardenError):
         super().__init__(f"Invalid alert payload: {reason}", {"payload_preview": payload_preview})
 
 
+# --- Provider Exceptions ---
 class ProviderError(FaultWardenError):
     """Raised when an external observability or LLM provider fails."""
 
@@ -62,6 +65,7 @@ class LLMError(ProviderError):
         super().__init__("llm", message, status_code)
 
 
+# --- Safety & Workflow Exceptions ---
 class RemediationSafetyError(FaultWardenError):
     """Raised when a remediation violates the safety tier or policy."""
 

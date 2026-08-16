@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# --- Component Settings Models ---
 class ServerSettings(BaseModel):
     """HTTP server and application runtime settings."""
 
@@ -90,6 +91,7 @@ class TelemetrySettings(BaseModel):
     enable_metrics: bool = Field(default=True, description="Enable Prometheus metrics endpoint")
 
 
+# --- Root Application Settings ---
 class Settings(BaseSettings):
     """Root configuration object loading from environment variables."""
 
@@ -217,6 +219,7 @@ class Settings(BaseSettings):
         )
 
 
+# --- Accessor Factory ---
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached application settings singleton."""

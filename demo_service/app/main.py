@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.routing import APIRoute
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 app = FastAPI(
@@ -12,45 +13,57 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# --- State for deterministic failure simulation ---
+# --- State for Deterministic Failure Simulation ---
 _ERROR_MODE_ENABLED: bool = False
 
-# --- Prometheus metrics ---
-DEMO_HTTP_REQUESTS_TOTAL = Counter(
-    "demo_http_requests_total",
-    "Total HTTP requests to the demo service",
-    ["method", "endpoint", "status"],
+# --- Prometheus Metrics ---
+# Use standard http_requests_total with low-cardinality normalized path labels
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests handled by the demo service",
+    ["method", "path", "status"],
 )
 
-DEMO_HTTP_DURATION_SECONDS = Histogram(
-    "demo_http_request_duration_seconds",
-    "HTTP request latency to the demo service in seconds",
-    ["method", "endpoint"],
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency for the demo service in seconds",
+    ["method", "path"],
 )
 
 
+def _get_normalized_path(request: Request) -> str:
+    """Extract parameterized route path or fallback to URL path to avoid label cardinality explosion."""
+    route: Any = request.scope.get("route")
+    if isinstance(route, APIRoute):
+        return route.path
+    return request.url.path
+
+
+# --- Middleware ---
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next: Any) -> Response:
     """Record request count and latency metrics for every non-/metrics request."""
     start_time = time.perf_counter()
-    response = await call_next(request)
+    response: Response = await call_next(request)
     duration = time.perf_counter() - start_time
 
     path = request.url.path
     if path != "/metrics":
-        DEMO_HTTP_REQUESTS_TOTAL.labels(
+        normalized_path = _get_normalized_path(request)
+        HTTP_REQUESTS_TOTAL.labels(
             method=request.method,
-            endpoint=path,
+            path=normalized_path,
             status=str(response.status_code),
         ).inc()
-        DEMO_HTTP_DURATION_SECONDS.labels(
+        HTTP_REQUEST_DURATION_SECONDS.labels(
             method=request.method,
-            endpoint=path,
+            path=normalized_path,
         ).observe(duration)
 
     return response
 
 
+# --- Diagnostic & Business Endpoints ---
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health() -> dict[str, str]:
     """Health check endpoint."""

@@ -5,8 +5,10 @@ import logging
 from faultwarden.core.logging import get_logger, setup_logging
 
 
+# --- Structured Logging Configuration Tests ---
 def test_setup_logging_development_uses_console_renderer() -> None:
     """Development environment should configure a colorized console handler."""
+
     setup_logging(log_level="DEBUG", environment="development")
 
     root_logger = logging.getLogger()

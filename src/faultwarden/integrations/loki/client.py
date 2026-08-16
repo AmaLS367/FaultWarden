@@ -13,6 +13,7 @@ from faultwarden.schemas.evidence import LogEntry
 logger = get_logger("faultwarden.integrations.loki")
 
 
+# --- Provider Protocol ---
 @runtime_checkable
 class LogsProvider(Protocol):
     """Abstract interface for log querying."""
@@ -32,6 +33,7 @@ class LogsProvider(Protocol):
         ...
 
 
+# --- Concrete Client Implementation ---
 class LokiClient(LogsProvider):
     """Concrete Loki logs provider using httpx."""
 

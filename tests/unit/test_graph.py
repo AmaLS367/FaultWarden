@@ -8,9 +8,11 @@ from faultwarden.schemas.hypothesis import HypothesisStatus
 from faultwarden.schemas.remediation import RemediationSafetyLevel
 
 
+# --- LangGraph State Machine Execution Tests ---
 @pytest.mark.asyncio
 async def test_langgraph_compilation_and_execution() -> None:
     """Verify that the LangGraph workflow compiles and deterministically executes all steps."""
+
     graph = build_incident_graph()
     assert graph is not None
 

@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# --- Safety Enums ---
 class RemediationSafetyLevel(IntEnum):
     """Three-tier safety classification for incident remediations."""
 
@@ -27,6 +28,7 @@ class RemediationStatus(StrEnum):
     ROLLED_BACK = "ROLLED_BACK"
 
 
+# --- Remediation Actions & Proposals ---
 class RemediationAction(BaseModel):
     """Discrete executable remediation step."""
 

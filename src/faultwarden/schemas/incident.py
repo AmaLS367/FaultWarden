@@ -12,6 +12,7 @@ from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
 from faultwarden.schemas.remediation import RemediationProposal
 
 
+# --- Enums ---
 class IncidentStatus(StrEnum):
     """Incident lifecycle state progression."""
 
@@ -37,6 +38,7 @@ class IncidentSeverity(StrEnum):
     INFO = "INFO"
 
 
+# --- Domain Schemas ---
 class IncidentBase(BaseModel):
     """Base fields shared across incident representations."""
 
@@ -48,6 +50,15 @@ class IncidentBase(BaseModel):
     )
     summary: str | None = Field(
         default=None, description="Current executive summary of the incident"
+    )
+    fingerprint: str | None = Field(
+        default=None, description="Stable alert fingerprint for deduplication and correlation"
+    )
+    service: str | None = Field(
+        default=None, description="Name of the affected service or component"
+    )
+    alert_status: str | None = Field(
+        default="firing", description="Current status of the upstream alert (e.g. firing, resolved)"
     )
 
 
@@ -69,6 +80,10 @@ class IncidentUpdate(BaseModel):
     status: IncidentStatus | None = None
     severity: IncidentSeverity | None = None
     summary: str | None = None
+    fingerprint: str | None = None
+    service: str | None = None
+    alert_status: str | None = None
+    alert_payload: dict[str, Any] | None = None
     evidence: list[EvidenceItem] | None = None
     hypotheses: list[Hypothesis] | None = None
     root_cause: RootCauseAnalysis | None = None
@@ -99,5 +114,7 @@ class IncidentFilter(BaseModel):
     status: IncidentStatus | None = None
     severity: IncidentSeverity | None = None
     source: str | None = None
+    fingerprint: str | None = None
+    service: str | None = None
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0)

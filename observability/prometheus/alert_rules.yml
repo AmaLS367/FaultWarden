@@ -1,8 +1,8 @@
 groups:
   - name: demo_service_alerts
     rules:
-      - alert: High5xxRate
-        expr: rate(demo_http_requests_total{status=~"5.."}[30s]) > 0
+      - alert: DemoServiceHighErrorRate
+        expr: rate(http_requests_total{job="demo-service", status=~"5.."}[30s]) > 0
         for: 10s
         labels:
           severity: critical
@@ -11,3 +11,4 @@ groups:
           summary: "Elevated HTTP 5xx error rate on demo-service"
           description: "demo-service is returning 5xx status codes for incoming requests."
           runbook_url: "https://wiki.internal/runbooks/demo-service-5xx"
+

@@ -13,6 +13,7 @@ from faultwarden.schemas.evidence import MetricData, MetricDataPoint
 logger = get_logger("faultwarden.integrations.prometheus")
 
 
+# --- Provider Protocol ---
 @runtime_checkable
 class MetricsProvider(Protocol):
     """Abstract interface for metrics querying."""
@@ -36,6 +37,7 @@ class MetricsProvider(Protocol):
         ...
 
 
+# --- Concrete Client Implementation ---
 class PrometheusClient(MetricsProvider):
     """Concrete Prometheus metrics provider using httpx."""
 

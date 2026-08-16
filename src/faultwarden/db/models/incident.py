@@ -16,6 +16,7 @@ class IncidentModel(Base, TimestampMixin):
 
     __tablename__ = "incidents"
 
+    # --- Core Incident Attributes ---
     id: Mapped[UUID] = mapped_column(
         GUID(),
         primary_key=True,
@@ -39,7 +40,14 @@ class IncidentModel(Base, TimestampMixin):
     )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Structured JSON payloads
+    # --- Correlating Identifiers & Alert Lifecycle ---
+    fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    service: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    alert_status: Mapped[str | None] = mapped_column(
+        String(30), nullable=True, default="firing", index=True
+    )
+
+    # --- Structured JSON Payloads & Investigation State ---
     alert_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     hypotheses: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)

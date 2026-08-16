@@ -13,12 +13,14 @@ from faultwarden.services.alert_service import AlertService
 from faultwarden.services.incident_service import IncidentService
 
 
+# --- Database Dependencies ---
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for providing database session."""
     async for session in get_db_session():
         yield session
 
 
+# --- Service Dependencies ---
 def get_incident_service(db: AsyncSession = Depends(get_db)) -> IncidentService:
     """Dependency for IncidentService."""
     return IncidentService(session=db)
@@ -31,6 +33,7 @@ def get_alert_service(
     return AlertService(incident_service=incident_service)
 
 
+# --- Integration Provider Dependencies ---
 def get_metrics_provider() -> MetricsProvider:
     """Dependency for Prometheus/MetricsProvider."""
     return PrometheusClient()

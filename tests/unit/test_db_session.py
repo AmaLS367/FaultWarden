@@ -14,6 +14,7 @@ from faultwarden.db import session as session_module
 from faultwarden.db.base import Base
 
 
+# --- Engine Creation & Singleton Tests ---
 def test_create_engine_sqlite_uses_check_same_thread() -> None:
     """SQLite URLs should produce an engine without pool sizing kwargs."""
     settings = DatabaseSettings(url_override="sqlite+aiosqlite:///:memory:")
@@ -64,9 +65,11 @@ async def test_init_db_models_creates_tables() -> None:
         await engine.dispose()
 
 
+# --- Session Lifecycle & Transaction Tests ---
 @pytest.mark.asyncio
 async def test_get_db_session_commits_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_db_session should yield a session and commit when no exception occurs."""
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -14,6 +14,7 @@ from faultwarden.integrations.prometheus.client import PrometheusClient
 from faultwarden.schemas.incident import IncidentRead
 
 
+# --- Mock Transport Helpers ---
 def _install_mock_transport(
     monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
 ) -> None:
@@ -27,6 +28,7 @@ def _install_mock_transport(
     monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
 
 
+# --- Placeholder LLM Tests ---
 @pytest.mark.asyncio
 async def test_placeholder_llm_provider() -> None:
     """Test deterministic placeholder LLM provider."""
@@ -38,6 +40,7 @@ async def test_placeholder_llm_provider() -> None:
     assert structured_resp is None or isinstance(structured_resp, IncidentRead)
 
 
+# --- Prometheus Client Tests ---
 def test_prometheus_parsing_logic() -> None:
     """Test Prometheus JSON vector/matrix response parsing."""
     client = PrometheusClient(PrometheusSettings(url="http://localhost:9090"))
@@ -62,8 +65,10 @@ def test_prometheus_parsing_logic() -> None:
     assert metrics[0].values[0].value == 42.5
 
 
+# --- Loki Client Tests ---
 def test_loki_parsing_logic() -> None:
     """Test Loki JSON stream response parsing."""
+
     client = LokiClient()
 
     payload = {
