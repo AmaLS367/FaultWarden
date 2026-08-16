@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from pydantic import TypeAdapter
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
+from faultwarden.schemas.remediation import RemediationProposal
 
 logger = get_logger("faultwarden.services.incident")
 
@@ -31,7 +33,9 @@ class IncidentService:
         evidence_dicts = [item.model_dump(mode="json") for item in data.evidence]
         hypotheses_dicts = [item.model_dump(mode="json") for item in data.hypotheses]
         root_cause_dict = data.root_cause.model_dump(mode="json") if data.root_cause else None
-        remediations_dicts = [item.model_dump(mode="json") for item in data.proposed_remediations]
+        remediations_dicts = TypeAdapter(list[RemediationProposal]).dump_python(
+            data.proposed_remediations, mode="json"
+        )
         classification_dict = (
             data.classification.model_dump(mode="json") if data.classification else None
         )
@@ -161,9 +165,9 @@ class IncidentService:
         if "root_cause" in update_dict and update_data.root_cause is not None:
             update_dict["root_cause"] = update_data.root_cause.model_dump(mode="json")
         if "proposed_remediations" in update_dict and update_data.proposed_remediations is not None:
-            update_dict["proposed_remediations"] = [
-                item.model_dump(mode="json") for item in update_data.proposed_remediations
-            ]
+            update_dict["proposed_remediations"] = TypeAdapter(
+                list[RemediationProposal]
+            ).dump_python(update_data.proposed_remediations, mode="json")
         if "classification" in update_dict and update_data.classification is not None:
             update_dict["classification"] = update_data.classification.model_dump(mode="json")
 

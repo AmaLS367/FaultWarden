@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
-from typing import Any
+from typing import Annotated, Any, Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 # --- Safety Enums ---
@@ -26,42 +27,147 @@ class RemediationStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     ROLLED_BACK = "ROLLED_BACK"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
 
 
-# --- Remediation Actions & Proposals ---
-class RemediationAction(BaseModel):
-    """Discrete remediation step (recommendation only in v0.2)."""
+class ActionType(StrEnum):
+    """Closed registry of executable remediation actions supported in v0.3."""
 
-    id: str
-    name: str
-    target_service: str
-    safety_level: RemediationSafetyLevel
-    action_type: str = Field(
-        description="e.g. restart_service, rollback_deployment, reset_configuration, scale_replicas"
-    )
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    description: str
+    RESET_DEMO_FAILURE = "RESET_DEMO_FAILURE"
+    RESTART_REGISTERED_SERVICE = "RESTART_REGISTERED_SERVICE"
 
 
-class RemediationProposal(BaseModel):
-    """Complete remediation proposal containing one or more actions."""
+# --- Action Parameters ---
+class ResetDemoFailureParameters(BaseModel):
+    """Parameters for resetting demo service failure modes."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    service: Literal["demo-service"] = "demo-service"
+
+
+class RestartRegisteredServiceParameters(BaseModel):
+    """Parameters for restarting a registered service in the demo environment."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    service_id: Literal["demo-service"] = "demo-service"
+
+
+# --- Pre-Policy Remediation Proposals (LLM-Facing) ---
+class _RemediationProposalBase(BaseModel):
+    """Base schema for pre-policy remediation proposals suggested by LLM reasoning.
+
+    IMPORTANT SAFETY INVARIANT (AGENTS.md #3, #5):
+    `proposed_risk` and `requires_approval` represent the LLM's OWN subjective suggestions
+    and are STRICTLY ADVISORY. A future Policy Engine (Phase 2+) is the sole authority for
+    final risk classification and approval requirements. Nothing in this codebase may treat
+    these two fields as authoritative execution permissions.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     incident_id: str
     title: str
-    summary: str
-    highest_safety_level: RemediationSafetyLevel
-    requires_human_approval: bool = True
-    status: RemediationStatus = RemediationStatus.PROPOSED
-    actions: list[RemediationAction] = Field(default_factory=list)
-    estimated_impact: str = ""
-    rollback_plan: str = ""
+    description: str
+    expected_effect: str
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+    # LLM's OWN suggestion — ADVISORY ONLY. The Policy Engine is the sole authority for risk classification.
+    proposed_risk: RemediationSafetyLevel
+    # LLM's OWN suggestion — ADVISORY ONLY. The Policy Engine is the sole authority for approval requirements.
+    requires_approval: bool
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-# --- LLM Structured Output Models ---
+class ResetDemoFailureProposal(_RemediationProposalBase):
+    """Proposal to reset the simulated fault injection state of the demo service."""
+
+    action_type: Literal[ActionType.RESET_DEMO_FAILURE] = ActionType.RESET_DEMO_FAILURE
+    parameters: ResetDemoFailureParameters = Field(default_factory=ResetDemoFailureParameters)
+
+
+class RestartRegisteredServiceProposal(_RemediationProposalBase):
+    """Proposal to trigger a controlled restart of the registered demo service."""
+
+    action_type: Literal[ActionType.RESTART_REGISTERED_SERVICE] = (
+        ActionType.RESTART_REGISTERED_SERVICE
+    )
+    parameters: RestartRegisteredServiceParameters = Field(
+        default_factory=RestartRegisteredServiceParameters
+    )
+
+
+RemediationProposal = Annotated[
+    ResetDemoFailureProposal | RestartRegisteredServiceProposal,
+    Field(discriminator="action_type"),
+]
+
+
+# --- Post-Policy Validated Remediation Actions ---
+class _RemediationActionBase(BaseModel):
+    """Base schema for post-policy validated, executable remediation actions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    proposal_id: str
+    policy_level: RemediationSafetyLevel  # authoritative — set ONLY by the future Policy Engine
+    approval_required: bool  # authoritative — set ONLY by the future Policy Engine
+    executor: str  # capability identifier, e.g. "demo_service.reset_failure_mode"
+
+
+class ResetDemoFailureExecutableAction(_RemediationActionBase):
+    """Executable action to reset demo service failure mode."""
+
+    action_type: Literal[ActionType.RESET_DEMO_FAILURE] = ActionType.RESET_DEMO_FAILURE
+    validated_parameters: ResetDemoFailureParameters
+
+
+class RestartRegisteredServiceExecutableAction(_RemediationActionBase):
+    """Executable action to restart the registered service."""
+
+    action_type: Literal[ActionType.RESTART_REGISTERED_SERVICE] = (
+        ActionType.RESTART_REGISTERED_SERVICE
+    )
+    validated_parameters: RestartRegisteredServiceParameters
+
+
+RemediationAction = Annotated[
+    ResetDemoFailureExecutableAction | RestartRegisteredServiceExecutableAction,
+    Field(discriminator="action_type"),
+]
+
+
+# --- Execution Results ---
+class RemediationExecutionStatus(StrEnum):
+    """Status outcomes for remediation action execution."""
+
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    TIMED_OUT = "TIMED_OUT"
+
+
+class RemediationResult(BaseModel):
+    """Execution outcome recorded after running a validated remediation action."""
+
+    model_config = ConfigDict(frozen=True)
+
+    action_id: str
+    status: RemediationExecutionStatus
+    started_at: datetime
+    completed_at: datetime | None = None
+    success: bool
+    summary: str
+    error: str | None = None
+    before_state: dict[str, Any] | None = None
+    after_state: dict[str, Any] | None = None
+
+
+# --- LLM Structured Output Models (Untrusted) ---
 class RemediationActionCandidate(BaseModel):
-    """Action candidate proposed by LLM."""
+    """Action candidate proposed by LLM (untrusted input requiring validation)."""
 
     name: str = Field(description="Short name for the recommended action")
     target_service: str = Field(description="Service targeted by this action")
@@ -71,13 +177,15 @@ class RemediationActionCandidate(BaseModel):
         le=2,
         description="Safety level: 0 (read-only), 1 (safe automatic), 2 (requires human approval)",
     )
-    action_type: str = Field(description="Action identifier e.g. reset_configuration, scale_pool")
+    action_type: str = Field(
+        description="Action identifier e.g. RESET_DEMO_FAILURE, RESTART_REGISTERED_SERVICE"
+    )
     parameters: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(description="Detailed explanation of what the action does")
 
 
 class RemediationProposalResponse(BaseModel):
-    """Structured proposal generated by LLM."""
+    """Structured proposal generated by LLM (untrusted input requiring validation)."""
 
     title: str = Field(description="Proposal title")
     summary: str = Field(description="Executive summary of why this remediation is proposed")
@@ -90,3 +198,41 @@ class RemediationProposalResponse(BaseModel):
     rollback_plan: str = Field(
         default="", description="Steps to take if the remediation causes further degradation"
     )
+
+
+# --- Validation Boundary ---
+def parse_remediation_proposal(
+    candidate: RemediationActionCandidate,
+    *,
+    incident_id: str,
+    supporting_evidence_ids: list[str],
+    expected_effect: str = "",
+    title: str | None = None,
+    requires_approval: bool = True,
+) -> RemediationProposal:
+    """Parse and validate an untrusted LLM candidate into a typed RemediationProposal variant.
+
+    Raises ValueError or pydantic.ValidationError if candidate.action_type is unknown or parameters are invalid.
+    """
+    if candidate.safety_level == 0:
+        proposed_risk = RemediationSafetyLevel.LEVEL_0_READ_ONLY
+    elif candidate.safety_level == 1:
+        proposed_risk = RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC
+    else:
+        proposed_risk = RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED
+
+    raw_dict: dict[str, Any] = {
+        "id": str(uuid4()),
+        "incident_id": incident_id,
+        "title": title or candidate.name,
+        "description": candidate.description,
+        "expected_effect": expected_effect,
+        "supporting_evidence_ids": supporting_evidence_ids,
+        "proposed_risk": proposed_risk,
+        "requires_approval": requires_approval,
+        "action_type": candidate.action_type,
+        "parameters": candidate.parameters,
+    }
+
+    adapter: TypeAdapter[RemediationProposal] = TypeAdapter(RemediationProposal)
+    return adapter.validate_python(raw_dict)

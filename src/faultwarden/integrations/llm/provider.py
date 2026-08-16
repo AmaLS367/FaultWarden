@@ -254,34 +254,35 @@ class MockLLMProvider(LLMProvider):
         # - Remediation Proposal
         if schema_name == "RemediationProposalResponse":
             from faultwarden.schemas.remediation import (
+                ActionType,
                 RemediationActionCandidate,
                 RemediationProposalResponse,
             )
 
             actions = [
                 RemediationActionCandidate(
-                    name="Disable Error Simulation Mode",
+                    name="Reset Demo Service Fault Injection",
                     target_service="demo-service",
                     safety_level=1,
-                    action_type="disable_error_mode",
-                    parameters={"enabled": False},
+                    action_type=ActionType.RESET_DEMO_FAILURE,
+                    parameters={"service": "demo-service"},
                     description="Reset debug error injection flag via POST /debug/error-mode/false",
                 ),
                 RemediationActionCandidate(
-                    name="Scale Database Connection Pool",
+                    name="Restart Registered Demo Service",
                     target_service="demo-service",
                     safety_level=2,
-                    action_type="scale_db_pool",
-                    parameters={"max_connections": 50},
-                    description="Increase connection pool capacity to prevent exhaustion under burst traffic",
+                    action_type=ActionType.RESTART_REGISTERED_SERVICE,
+                    parameters={"service_id": "demo-service"},
+                    description="Trigger a simulated restart of the registered demo service container",
                 ),
             ]
             result_rem = RemediationProposalResponse(
-                title="Remediation for Database Connection Pool Exhaustion",
-                summary="Disable simulated fault injection and scale connection pool parameters.",
+                title="Remediation for Demo Service Incident",
+                summary="Reset simulated fault injection and trigger service restart.",
                 actions=actions,
                 estimated_impact="Eliminates HTTP 500 errors and restores normal request latency.",
-                rollback_plan="Revert configuration parameters if database server memory exceeds 80%.",
+                rollback_plan="Revert configuration parameters if degradation persists.",
             )
             return schema.model_validate(result_rem.model_dump())
 

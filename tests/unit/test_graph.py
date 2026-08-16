@@ -5,7 +5,7 @@ import pytest
 from faultwarden.graph.builder import build_incident_graph
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.schemas.hypothesis import HypothesisStatus
-from faultwarden.schemas.remediation import RemediationSafetyLevel, RemediationStatus
+from faultwarden.schemas.remediation import ActionType, RemediationSafetyLevel
 
 
 # --- LangGraph State Machine Execution Tests ---
@@ -66,16 +66,18 @@ async def test_langgraph_compilation_and_execution() -> None:
     assert final_state["root_cause"] is not None
     assert final_state["root_cause"].confidence >= 0.75
 
-    # Remediation proposals (read-only invariant check)
+    # Remediation proposals (flattened proposal invariant check)
     assert len(final_state["remediation_proposals"]) >= 1
     proposal = final_state["remediation_proposals"][0]
-    assert proposal.status == RemediationStatus.PROPOSED
-    assert proposal.requires_human_approval is True
-    assert proposal.highest_safety_level in (
+    assert proposal.requires_approval is True
+    assert proposal.proposed_risk in (
         RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
         RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
     )
-    assert len(proposal.actions) >= 1
+    assert proposal.action_type in (
+        ActionType.RESET_DEMO_FAILURE,
+        ActionType.RESTART_REGISTERED_SERVICE,
+    )
 
     # Final summary and status
     assert final_state["investigation_status"] == "COMPLETED"
@@ -117,17 +119,12 @@ async def test_langgraph_handles_prompt_injection_telemetry() -> None:
 
     # Remediation proposals must remain pure recommendations and no shell actions
     for proposal in final_state.get("remediation_proposals", []):
-        for action in proposal.actions:
-            assert "rm -rf" not in action.name.lower()
-            assert "rm -rf" not in action.description.lower()
-            assert action.action_type in (
-                "disable_error_mode",
-                "scale_db_pool",
-                "reset_configuration",
-                "scale_replicas",
-                "restart_service",
-                "rollback_deployment",
-            )
+        assert "rm -rf" not in proposal.title.lower()
+        assert "rm -rf" not in proposal.description.lower()
+        assert proposal.action_type in (
+            ActionType.RESET_DEMO_FAILURE,
+            ActionType.RESTART_REGISTERED_SERVICE,
+        )
 
 
 @pytest.mark.asyncio
@@ -173,6 +170,7 @@ async def test_propose_remediation_level_0_mapping() -> None:
     from faultwarden.graph.nodes.propose_remediation import propose_remediation_node
     from faultwarden.schemas.hypothesis import Hypothesis
     from faultwarden.schemas.remediation import (
+        ActionType,
         RemediationActionCandidate,
         RemediationProposalResponse,
     )
@@ -183,11 +181,12 @@ async def test_propose_remediation_level_0_mapping() -> None:
         summary="Read-only diagnostic plan",
         actions=[
             RemediationActionCandidate(
-                name="Inspect Connection Stats",
+                name="Reset Demo Service",
                 target_service="demo-service",
                 safety_level=0,
-                action_type="inspect_connection_stats",
-                description="Query connection pool statistics safely",
+                action_type=ActionType.RESET_DEMO_FAILURE,
+                parameters={"service": "demo-service"},
+                description="Safely reset demo service state",
             )
         ],
     )
@@ -217,7 +216,7 @@ async def test_propose_remediation_level_0_mapping() -> None:
     result = await propose_remediation_node(state, config=config)
     proposals = result["remediation_proposals"]
     assert len(proposals) == 1
-    assert proposals[0].actions[0].safety_level == RemediationSafetyLevel.LEVEL_0_READ_ONLY
+    assert proposals[0].proposed_risk == RemediationSafetyLevel.LEVEL_0_READ_ONLY
 
 
 @pytest.mark.asyncio

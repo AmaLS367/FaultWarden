@@ -29,7 +29,7 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
-from faultwarden.schemas.remediation import RemediationProposal, RemediationStatus
+from faultwarden.schemas.remediation import ActionType, RemediationProposal
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
 
@@ -300,7 +300,7 @@ async def test_spec_10_investigation_failure_does_not_corrupt_incident(
 # 11. Remediation is proposed but never executed
 @pytest.mark.asyncio
 async def test_spec_11_remediation_is_proposed_but_never_executed() -> None:
-    """Requirement 11: All generated remediation proposals are recommendations only (status=PROPOSED)."""
+    """Requirement 11: All generated remediation proposals are recommendations only (requires_approval=True)."""
     now = datetime.now(UTC)
     rc = RootCauseAnalysis(
         primary_hypothesis_id="hyp-1",
@@ -323,8 +323,11 @@ async def test_spec_11_remediation_is_proposed_but_never_executed() -> None:
     proposals: list[RemediationProposal] = res["remediation_proposals"]
     assert len(proposals) >= 1
     for prop in proposals:
-        assert prop.status == RemediationStatus.PROPOSED
-        assert prop.requires_human_approval is True
+        assert prop.requires_approval is True
+        assert prop.action_type in (
+            ActionType.RESET_DEMO_FAILURE,
+            ActionType.RESTART_REGISTERED_SERVICE,
+        )
 
 
 # 12. Untrusted log text cannot alter system policy

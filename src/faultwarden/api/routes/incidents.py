@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import TypeAdapter
 
 from faultwarden.api.dependencies import get_incident_service, get_investigation_service
 from faultwarden.db.models.incident import IncidentModel
@@ -50,9 +51,9 @@ def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
     root_cause = (
         RootCauseAnalysis.model_validate(incident.root_cause) if incident.root_cause else None
     )
-    proposals = [
-        RemediationProposal.model_validate(r) for r in (incident.proposed_remediations or [])
-    ]
+    proposals = TypeAdapter(list[RemediationProposal]).validate_python(
+        incident.proposed_remediations or []
+    )
     classification = (
         IncidentClassification.model_validate(incident.classification)
         if incident.classification

@@ -182,7 +182,7 @@ async def test_weak_hypothesis_triggers_bounded_iteration_loop() -> None:
     assert final_state["iteration_count"] >= 1
     assert final_state["investigation_status"] in ("COMPLETED", "INCONCLUSIVE")
     assert len(final_state["remediation_proposals"]) >= 1
-    assert final_state["remediation_proposals"][0].highest_safety_level in (
+    assert final_state["remediation_proposals"][0].proposed_risk in (
         RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
         RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
     )
