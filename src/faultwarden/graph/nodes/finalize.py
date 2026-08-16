@@ -19,6 +19,7 @@ async def finalize_investigation_node(
     evidence_list = state.get("evidence", [])
     proposals = state.get("remediation_proposals", [])
     iterations = state.get("iteration_count", 1)
+    errors = state.get("errors", [])
 
     if root_cause:
         status_str = "COMPLETED"
@@ -39,12 +40,18 @@ async def finalize_investigation_node(
         status_str = "FAILED"
         summary = f"Investigation concluded without finding viable hypotheses across {iterations} iteration(s)."
 
+    if errors:
+        summary += (
+            f" Encountered {len(errors)} non-fatal error(s) during evidence collection/reasoning."
+        )
+
     logger.info(
         "investigation_completed",
         incident_id=incident_id,
         status=status_str,
         iterations=iterations,
         has_root_cause=root_cause is not None,
+        errors_count=len(errors),
     )
 
     return {

@@ -32,6 +32,9 @@ class IncidentService:
         hypotheses_dicts = [item.model_dump(mode="json") for item in data.hypotheses]
         root_cause_dict = data.root_cause.model_dump(mode="json") if data.root_cause else None
         remediations_dicts = [item.model_dump(mode="json") for item in data.proposed_remediations]
+        classification_dict = (
+            data.classification.model_dump(mode="json") if data.classification else None
+        )
 
         incident = IncidentModel(
             title=data.title,
@@ -48,6 +51,8 @@ class IncidentService:
             root_cause=root_cause_dict,
             proposed_remediations=remediations_dicts,
             resolution=data.resolution,
+            classification=classification_dict,
+            iteration_count=data.iteration_count,
         )
 
         self.session.add(incident)
@@ -77,6 +82,27 @@ class IncidentService:
             .where(
                 IncidentModel.fingerprint == fingerprint,
                 IncidentModel.status.not_in([IncidentStatus.RESOLVED, IncidentStatus.FAILED]),
+            )
+            .order_by(desc(IncidentModel.created_at))
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def find_firing_by_fingerprint(self, fingerprint: str) -> IncidentModel | None:
+        """Find the latest incident matching a fingerprint whose alert is still actively firing.
+
+        Unlike `find_active_by_fingerprint`, this also excludes incidents whose upstream alert
+        already resolved (alert_status == "resolved"): once an alert clears, a later re-firing
+        of the same fingerprint is a fresh occurrence and must not be silently absorbed as a
+        duplicate update of the old (already-resolved) incident.
+        """
+        stmt = (
+            select(IncidentModel)
+            .where(
+                IncidentModel.fingerprint == fingerprint,
+                IncidentModel.status.not_in([IncidentStatus.RESOLVED, IncidentStatus.FAILED]),
+                IncidentModel.alert_status == "firing",
             )
             .order_by(desc(IncidentModel.created_at))
             .limit(1)
@@ -138,6 +164,8 @@ class IncidentService:
             update_dict["proposed_remediations"] = [
                 item.model_dump(mode="json") for item in update_data.proposed_remediations
             ]
+        if "classification" in update_dict and update_data.classification is not None:
+            update_dict["classification"] = update_data.classification.model_dump(mode="json")
 
         for field, value in update_dict.items():
             setattr(incident, field, value)

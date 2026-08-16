@@ -98,8 +98,10 @@ class AlertService:
         auto_investigate: bool = True,
     ) -> tuple[IncidentModel, AlertIngestResponse]:
         """Process firing alerts idempotently by checking for an active incident fingerprint."""
-        # We match incoming alerts via unique fingerprints to identify recurring issues
-        existing_incident = await self.incident_service.find_active_by_fingerprint(fingerprint)
+        # We match incoming alerts via unique fingerprints to identify recurring issues. Only an
+        # incident whose alert is still actively firing counts as a duplicate here — one whose
+        # alert already resolved must start a fresh incident + investigation on re-firing.
+        existing_incident = await self.incident_service.find_firing_by_fingerprint(fingerprint)
 
         if existing_incident is not None:
             # Prevent notification storms from creating duplicate incidents for the same active condition

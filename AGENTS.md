@@ -23,7 +23,7 @@ When modifying this repository, you **MUST** strictly adhere to the rules, bound
 * `src/faultwarden/db/`: SQLAlchemy 2 async engine, declarative base, and models (`IncidentModel`).
 * `src/faultwarden/schemas/`: Pydantic v2 domain schemas (`AlertmanagerPayload`, `IncidentRead`, `EvidenceItem`, `Hypothesis`, `RemediationProposal`).
 * `src/faultwarden/graph/`: LangGraph `StateGraph`, `IncidentInvestigationState`, and deterministic node definitions.
-* `src/faultwarden/services/`: Business logic (`IncidentService`, `AlertService`).
+* `src/faultwarden/services/`: Business logic (`IncidentService`, `AlertService`, `InvestigationService`).
 * `src/faultwarden/integrations/`: Provider boundary protocols (`MetricsProvider`, `LogsProvider`, `LLMProvider`) and concrete clients.
 * `src/faultwarden/telemetry/`: OpenTelemetry setup boundary and Prometheus `/metrics` registry.
 * `demo_service/`: Standalone breakable FastAPI service exposing `/health`, `/debug/error-mode/{enabled}`, and `/metrics`.

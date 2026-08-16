@@ -32,6 +32,17 @@ class LogsProvider(Protocol):
         """Check Loki reachability."""
         ...
 
+    async def get_service_logs(
+        self,
+        service_name: str,
+        start: datetime,
+        end: datetime,
+        level: str | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        """Query logs for a given service with optional log level filtering."""
+        ...
+
 
 # --- Concrete Client Implementation ---
 class LokiClient(LogsProvider):
@@ -103,20 +114,17 @@ class LokiClient(LogsProvider):
     ) -> list[LogEntry]:
         """Query logs for a given service with optional log level filtering."""
         clean_service = service_name.replace('"', "").replace("'", "").strip()
-        base_selector = f'{{service="{clean_service}"}}'
-        if level:
-            clean_level = level.upper().strip()
-            query = f'{base_selector} |= "{clean_level}"'
-        else:
-            query = base_selector
+        # Filter by the `level` stream label rather than a body text search (`|= "ERROR"`):
+        # log producers (e.g. demo_service) attach level as a Loki stream label, and the log
+        # body itself often does not contain the literal level name.
+        level_selector = f', level="{level.lower().strip()}"' if level else ""
+        query = f'{{service="{clean_service}"{level_selector}}}'
 
         try:
             return await self.query_range(query, start, end, limit=limit)
         except Exception:
             # Fallback to job label if service label yields nothing or fails
-            job_query = f'{{job="{clean_service}"}}'
-            if level:
-                job_query = f'{job_query} |= "{level.upper().strip()}"'
+            job_query = f'{{job="{clean_service}"{level_selector}}}'
             return await self.query_range(job_query, start, end, limit=limit)
 
     # --- Result Parsing ---

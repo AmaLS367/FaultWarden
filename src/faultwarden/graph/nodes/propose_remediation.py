@@ -4,9 +4,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import get_llm_provider_from_config
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.llm.provider import get_llm_provider
 from faultwarden.schemas.remediation import (
     RemediationAction,
     RemediationProposal,
@@ -21,6 +23,7 @@ logger = get_logger("faultwarden.graph.nodes.propose_remediation")
 # --- Remediation Proposal Logic (Read-Only) ---
 async def propose_remediation_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Generate structured remediation proposals based on identified root cause (recommendations only)."""
     incident_id = state.get("incident_id", "unknown")
@@ -51,7 +54,8 @@ async def propose_remediation_node(
         "4. This is for recommendations ONLY; do NOT execute any action."
     )
 
-    llm = get_llm_provider()
+    llm = get_llm_provider_from_config(config)
+    node_errors: list[str] = []
     actions: list[RemediationAction] = []
     proposal_title = f"Remediation Proposal for {target_service}"
     proposal_summary = f"Remediation actions proposed for root cause: {cause_summary}"
@@ -88,6 +92,9 @@ async def propose_remediation_node(
             )
     except Exception as exc:
         logger.warning("llm_remediation_proposal_failed", error=str(exc))
+        node_errors.append(
+            f"propose_remediation: LLM proposal generation failed, using fallback: {exc}"
+        )
 
     if not actions:
         # Fallback deterministic actions
@@ -142,4 +149,5 @@ async def propose_remediation_node(
 
     return {
         "remediation_proposals": [proposal],
+        "errors": node_errors,
     }

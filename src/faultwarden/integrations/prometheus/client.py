@@ -40,6 +40,18 @@ class MetricsProvider(Protocol):
         """Check provider reachability."""
         ...
 
+    async def get_service_error_rate(
+        self, service_name: str, start: datetime, end: datetime
+    ) -> list[MetricData]:
+        """Fetch 5xx HTTP error rate for a given service."""
+        ...
+
+    async def get_service_request_rate(
+        self, service_name: str, start: datetime, end: datetime
+    ) -> list[MetricData]:
+        """Fetch total HTTP request rate for a given service."""
+        ...
+
 
 # --- Concrete Client Implementation ---
 class PrometheusClient(MetricsProvider):

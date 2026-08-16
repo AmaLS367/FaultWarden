@@ -53,8 +53,6 @@ services:
       dockerfile: Dockerfile
     container_name: demo-traffic-generator
     command: ["python", "/app/traffic_generator.py"]
-    volumes:
-      - ./demo_service/traffic_generator.py:/app/traffic_generator.py:ro
     environment:
       - TRAFFIC_TARGET_URL=http://demo-service:8001/
       - TRAFFIC_INTERVAL_SECONDS=1.0

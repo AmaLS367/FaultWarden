@@ -127,3 +127,22 @@ async def test_alertmanager_webhook_to_incident_persistence_and_retrieval(
     not_found_resp = await client.get(f"/api/v1/incidents/{fake_id}")
     assert not_found_resp.status_code == 404
     assert not_found_resp.json()["error"] == "Not Found"
+
+    # - 7. Re-firing After Resolution Starts a Fresh Incident
+    # A later firing webhook on a fingerprint whose incident already resolved must NOT be
+    # silently absorbed as a duplicate update of the resolved incident — it is a fresh
+    # occurrence and must spawn a new incident (and thus a new investigation).
+    refire_resp = await client.post(
+        "/api/v1/alerts/alertmanager",
+        json=sample_alertmanager_payload,
+    )
+    assert refire_resp.status_code == 201
+    refire_data = refire_resp.json()
+    assert refire_data["status"] == "created"
+    assert refire_data["incident_id"] != incident_id
+
+    list_fp_after_refire = await client.get(
+        "/api/v1/incidents", params={"fingerprint": "a1b2c3d4e5f6"}
+    )
+    assert list_fp_after_refire.status_code == 200
+    assert len(list_fp_after_refire.json()) == 2

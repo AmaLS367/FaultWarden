@@ -33,6 +33,7 @@
 │                       Service Layer                         │
 │  - AlertService (Webhook validation & incident mapping)     │
 │  - IncidentService (CRUD & state transitions)               │
+│  - InvestigationService (LangGraph execution & persistence) │
 └──────────────┬───────────────────────────────┬──────────────┘
                │                               │
 ┌──────────────▼──────────────┐ ┌──────────────▼──────────────┐
@@ -77,28 +78,47 @@ The investigation graph is compiled using `langgraph.graph.StateGraph` with a st
 [START]
    │
    ▼
-[classify_incident]       Extracts alert labels, assigns severity, identifies target service.
+[classify_incident]            Extracts alert labels, assigns severity, identifies target service.
    │
    ▼
-[collect_context]         Queries MetricsProvider (Prometheus) and LogsProvider (Loki) for relevant telemetry.
+[collect_initial_metrics]      Queries MetricsProvider (Prometheus) for the incident window.
    │
    ▼
-[generate_hypotheses]     Generates candidate root-cause failure mechanisms linked to evidence.
+[collect_initial_logs]         Queries LogsProvider (Loki) for the incident window.
    │
    ▼
-[verify_hypothesis]       Tests hypotheses against telemetry, calculates confidence, selects primary RootCauseAnalysis.
+[correlate_evidence]           Cross-references collected metrics and logs into unified evidence items.
    │
    ▼
-[propose_remediation]     Generates tier-classified remediation actions (Safe vs. Approval Required).
-   │
-   ▼
- [END]
+[generate_hypotheses] ◄──────────────────────────────┐
+   │                                                  │
+   ▼                                                  │
+[verify_hypothesis]                                   │
+   │                                                   │
+   ├─ root cause verified OR max iterations OR         │
+   │  no missing queries ──────────────┐               │
+   │                                   │               │
+   └─ evidence insufficient            │               │
+      │                                │               │
+      ▼                                │               │
+[collect_additional_telemetry] ────────┘ (loop back)   │
+      └──────────────────────────────────────────────┘
+                                        │
+                                        ▼
+                              [propose_remediation]     Generates tier-classified remediation actions
+                                        │                (Safe vs. Approval Required).
+                                        ▼
+                              [finalize_investigation]  Compiles executive summary and final status.
+                                        │
+                                        ▼
+                                      [END]
 ```
 
 ### LangGraph State Schema (`IncidentInvestigationState`)
 * `incident_id`: Unique incident UUID
 * `alert`: Raw and normalized alert payload
-* `incident`: Current Incident domain representation
+* `incident_context`: Lightweight incident context (title, severity, service) passed into the graph
+* `classification`: `IncidentClassification` determined by `classify_incident`
 * `evidence`: Accumulated evidence items (`MetricData`, `LogEntry`, `TraceSpan`, `DeploymentEvent`)
 * `metrics`: Time-series query results
 * `logs`: Log stream extractions
@@ -109,6 +129,9 @@ The investigation graph is compiled using `langgraph.graph.StateGraph` with a st
 * `root_cause`: Final structured `RootCauseAnalysis`
 * `remediation_proposals`: Remediation proposals with safety classification
 * `iteration_count`: Cycle count
+* `missing_evidence_queries`: Targeted PromQL/LogQL queries requested by the last verification pass
+* `investigation_status`: Graph-level run status (`INVESTIGATING`, `COMPLETED`, `INCONCLUSIVE`, `FAILED`)
+* `summary`: Executive summary compiled by `finalize_investigation`
 * `errors`: Collected execution warnings / non-fatal errors
 
 ---

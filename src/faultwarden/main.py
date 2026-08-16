@@ -98,6 +98,7 @@ def create_app() -> FastAPI:
     async def request_logging_middleware(
         request: Request, call_next: Callable[..., Any]
     ) -> Response:
+        """Record per-request metrics and structured logs, tagging the response with a request ID."""
         request_id = request.headers.get("X-Request-ID", str(uuid4()))
         start_time = time.perf_counter()
 
@@ -137,6 +138,7 @@ def create_app() -> FastAPI:
     async def incident_not_found_handler(
         _request: Request, exc: IncidentNotFoundError
     ) -> JSONResponse:
+        """Map a missing-incident lookup to a 404 response."""
         logger.warning("incident_not_found", error=exc.message, incident_id=exc.incident_id)
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -147,6 +149,7 @@ def create_app() -> FastAPI:
     async def invalid_alert_handler(
         _request: Request, exc: InvalidAlertPayloadError
     ) -> JSONResponse:
+        """Map a malformed Alertmanager payload to a 422 response."""
         logger.warning("invalid_alert_payload", error=exc.message, details=exc.details)
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -161,6 +164,7 @@ def create_app() -> FastAPI:
     async def remediation_safety_handler(
         _request: Request, exc: RemediationSafetyError
     ) -> JSONResponse:
+        """Map a remediation safety-tier violation to a 403 response."""
         logger.error("remediation_safety_violation", error=exc.message, details=exc.details)
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -169,6 +173,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(ProviderError)
     async def provider_error_handler(_request: Request, exc: ProviderError) -> JSONResponse:
+        """Map an upstream integration failure (Prometheus, Loki, LLM) to a 502 response."""
         logger.error("provider_error", provider=exc.provider_name, error=exc.message)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -181,6 +186,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(FaultWardenError)
     async def faultwarden_generic_handler(_request: Request, exc: FaultWardenError) -> JSONResponse:
+        """Catch-all mapping for any unhandled domain error to a 500 response."""
         logger.error("faultwarden_error", error=exc.message, details=exc.details)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -195,6 +201,7 @@ def create_app() -> FastAPI:
     async def validation_error_handler(
         _request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        """Map a FastAPI/Pydantic request validation failure to a 422 response."""
         logger.warning("request_validation_failed", errors=exc.errors())
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

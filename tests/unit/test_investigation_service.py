@@ -115,6 +115,18 @@ async def test_investigation_api_endpoints(
     assert len(run_data["hypotheses"]) >= 1
     assert run_data["root_cause"] is not None
     assert len(run_data["remediation_proposals"]) >= 1
+    assert run_data["classification"] is not None
+    assert run_data["iteration_count"] >= 1
+    assert run_data["selected_hypothesis"] is not None
+    assert run_data["selected_hypothesis"]["id"] == run_data["root_cause"]["primary_hypothesis_id"]
+
+    # 3b. GET after the run must reflect the same persisted investigation metadata
+    get_after_run_resp = await client.get(f"/api/v1/incidents/{incident_id}/investigation")
+    assert get_after_run_resp.status_code == 200
+    after_run_data = get_after_run_resp.json()
+    assert after_run_data["classification"] is not None
+    assert after_run_data["iteration_count"] >= 1
+    assert after_run_data["selected_hypothesis"] is not None
 
     # 4. Verify 404 for non-existent incident investigation
     fake_id = str(uuid4())

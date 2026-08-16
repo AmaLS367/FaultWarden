@@ -72,6 +72,8 @@ class IncidentCreate(IncidentBase):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
     resolution: str | None = None
+    classification: IncidentClassification | None = None
+    iteration_count: int = 1
 
 
 class IncidentUpdate(BaseModel):
@@ -90,6 +92,8 @@ class IncidentUpdate(BaseModel):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] | None = None
     resolution: str | None = None
+    classification: IncidentClassification | None = None
+    iteration_count: int | None = None
 
 
 class IncidentRead(IncidentBase):
@@ -105,6 +109,8 @@ class IncidentRead(IncidentBase):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
     resolution: str | None = None
+    classification: IncidentClassification | None = None
+    iteration_count: int = 1
     created_at: datetime
     updated_at: datetime
 

@@ -3,11 +3,15 @@
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from faultwarden.core.config import get_settings
 from faultwarden.core.exceptions import FaultWardenError
 from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import build_incident_graph
+from faultwarden.integrations.llm.provider import get_llm_provider
+from faultwarden.integrations.loki.client import LokiClient
+from faultwarden.integrations.prometheus.client import PrometheusClient
 from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
@@ -15,6 +19,8 @@ from faultwarden.schemas.incident import (
 from faultwarden.services.incident_service import IncidentService
 
 if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+
     from faultwarden.graph.state import IncidentInvestigationState
 
 logger = get_logger("faultwarden.services.investigation")
@@ -63,22 +69,42 @@ class InvestigationService:
         }
 
         graph = build_incident_graph()
+        settings = get_settings()
+        run_config: RunnableConfig = {
+            "configurable": {
+                "metrics_provider": PrometheusClient(settings.prometheus),
+                "logs_provider": LokiClient(settings.loki),
+                "llm_provider": get_llm_provider(),
+            }
+        }
 
         try:
-            final_state: dict[str, Any] = await graph.ainvoke(initial_state)
+            final_state: dict[str, Any] = await graph.ainvoke(initial_state, config=run_config)
 
             evidence_items = final_state.get("evidence", [])
             hypotheses_list = final_state.get("hypotheses", [])
             root_cause_val = final_state.get("root_cause")
             proposals_list = final_state.get("remediation_proposals", [])
             summary_val = final_state.get("summary", "")
+            classification_val = final_state.get("classification")
+            iteration_val = final_state.get("iteration_count", 1)
+            graph_investigation_status = final_state.get("investigation_status")
 
             if proposals_list:
                 next_status = IncidentStatus.REMEDIATION_PROPOSED
             elif root_cause_val:
                 next_status = IncidentStatus.ROOT_CAUSE_IDENTIFIED
             else:
-                next_status = IncidentStatus.INVESTIGATING
+                # propose_remediation_node always emits a fallback proposal before
+                # finalize_investigation runs, so this branch should be unreachable in practice.
+                # Guard against it anyway: never leave an incident stuck in INVESTIGATING forever
+                # if that invariant is ever broken by a future change to that node.
+                logger.warning(
+                    "investigation_completed_without_output",
+                    incident_id=incident_id_str,
+                    graph_investigation_status=graph_investigation_status,
+                )
+                next_status = IncidentStatus.FAILED
 
             update_data = IncidentUpdate(
                 status=next_status,
@@ -87,6 +113,8 @@ class InvestigationService:
                 root_cause=root_cause_val,
                 proposed_remediations=proposals_list,
                 summary=summary_val or incident.summary,
+                classification=classification_val,
+                iteration_count=iteration_val,
             )
 
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)

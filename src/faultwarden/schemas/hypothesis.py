@@ -108,12 +108,12 @@ class HypothesisGenerationResponse(BaseModel):
 
 
 class HypothesisVerificationResponse(BaseModel):
-    """Structured response container for LLM hypothesis verification."""
+    """Structured response container for LLM hypothesis verification.
 
-    selected_hypothesis_index: int | None = Field(
-        default=None,
-        description="0-based index of the best candidate hypothesis, or null if all refuted",
-    )
+    Evaluates exactly one pre-selected candidate hypothesis at a time (the caller picks the
+    best candidate before prompting), so this response has no notion of an index into a list.
+    """
+
     is_verified: bool = Field(
         default=False,
         description="True if evidence is strong enough to confirm as root cause",

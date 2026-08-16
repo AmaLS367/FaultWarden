@@ -4,9 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import get_llm_provider_from_config
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.llm.provider import get_llm_provider, wrap_untrusted_telemetry
+from faultwarden.integrations.llm.provider import wrap_untrusted_telemetry
 from faultwarden.schemas.hypothesis import (
     Hypothesis,
     HypothesisGenerationResponse,
@@ -19,6 +22,7 @@ logger = get_logger("faultwarden.graph.nodes.hypothesize")
 # --- Hypothesis Generation Logic ---
 async def generate_hypotheses_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Generate structured candidate root-cause hypotheses from accumulated evidence."""
     incident_id = state.get("incident_id", "unknown")
@@ -70,9 +74,10 @@ async def generate_hypotheses_node(
         "Your task is to impartially formulate candidate failure hypotheses based on telemetry."
     )
 
-    llm = get_llm_provider()
+    llm = get_llm_provider_from_config(config)
     now = datetime.now(UTC)
     hypotheses: list[Hypothesis] = []
+    node_errors: list[str] = []
 
     try:
         response: HypothesisGenerationResponse = await llm.generate_structured(
@@ -114,6 +119,7 @@ async def generate_hypotheses_node(
             incident_id=incident_id,
             error=str(exc),
         )
+        node_errors.append(f"generate_hypotheses: LLM generation failed, using fallback: {exc}")
 
     # - Fallback Heuristic if LLM returned nothing or failed
     if not hypotheses:
@@ -163,4 +169,5 @@ async def generate_hypotheses_node(
 
     return {
         "hypotheses": hypotheses,
+        "errors": node_errors,
     }

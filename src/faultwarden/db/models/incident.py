@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, String, Text
+from sqlalchemy import JSON, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +56,8 @@ class IncidentModel(Base, TimestampMixin):
         JSON, nullable=False, default=list
     )
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classification: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    iteration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     def __repr__(self) -> str:
         return f"<IncidentModel(id={self.id}, title='{self.title}', status='{self.status}', severity='{self.severity}')>"

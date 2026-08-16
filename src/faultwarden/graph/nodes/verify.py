@@ -3,10 +3,13 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import get_llm_provider_from_config
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.llm.provider import get_llm_provider, wrap_untrusted_telemetry
+from faultwarden.integrations.llm.provider import wrap_untrusted_telemetry
 from faultwarden.schemas.hypothesis import (
     Hypothesis,
     HypothesisStatus,
@@ -20,6 +23,7 @@ logger = get_logger("faultwarden.graph.nodes.verify")
 # --- Hypothesis Verification Logic ---
 async def verify_hypothesis_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Test candidate hypotheses against accumulated evidence and promote verified root cause."""
     incident_id = state.get("incident_id", "unknown")
@@ -68,11 +72,12 @@ async def verify_hypothesis_node(
         "3. If evidence is insufficient, list 1-2 specific PromQL or LogQL queries needed."
     )
 
-    llm = get_llm_provider()
+    llm = get_llm_provider_from_config(config)
     missing_queries: list[str] = []
     evaluated_confidence = best_candidate.confidence_score
     is_verified = False
     eval_reasoning = ""
+    node_errors: list[str] = []
 
     try:
         ver_resp: HypothesisVerificationResponse = await llm.generate_structured(
@@ -86,6 +91,7 @@ async def verify_hypothesis_node(
         missing_queries = ver_resp.additional_queries_needed
     except Exception as exc:
         logger.warning("llm_verification_evaluation_failed", error=str(exc))
+        node_errors.append(f"verify_hypothesis: LLM verification failed, using fallback: {exc}")
         # Fallback deterministic evaluation based on candidate confidence score
         if best_candidate.confidence_score >= confidence_threshold:
             is_verified = True
@@ -144,6 +150,7 @@ async def verify_hypothesis_node(
             "root_cause": root_cause,
             "investigation_status": "ROOT_CAUSE_IDENTIFIED",
             "missing_evidence_queries": [],
+            "errors": node_errors,
         }
 
     # Not verified: at the last allowed iteration, stop looping without fabricating a root
@@ -170,4 +177,5 @@ async def verify_hypothesis_node(
         "missing_evidence_queries": []
         if at_max_iterations
         else (missing_queries or ["sum(rate(http_requests_total[1m]))"]),
+        "errors": node_errors,
     }

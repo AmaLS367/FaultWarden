@@ -4,10 +4,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import extract_service_name, get_metrics_provider
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.prometheus.client import PrometheusClient
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType, MetricData
 
 logger = get_logger("faultwarden.graph.nodes.collect_metrics")
@@ -16,19 +18,20 @@ logger = get_logger("faultwarden.graph.nodes.collect_metrics")
 # --- Metrics Collection ---
 async def collect_initial_metrics_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Gather time-series telemetry from Prometheus covering the incident window."""
     incident_id = state.get("incident_id", "unknown")
     alert = state.get("alert", {})
     common_labels = alert.get("commonLabels", {})
-    service_name = common_labels.get("job", common_labels.get("service", "demo-service"))
+    service_name = extract_service_name(common_labels, default="demo-service")
 
     settings = get_settings()
     lookback = timedelta(minutes=settings.investigation.metrics_lookback_minutes)
     end_time = datetime.now(UTC)
     start_time = end_time - lookback
 
-    client = PrometheusClient(settings.prometheus)
+    client = get_metrics_provider(config)
     if not await client.check_health():
         logger.info("prometheus_not_accessible_skipping_metrics", service=service_name)
         return {
@@ -38,6 +41,7 @@ async def collect_initial_metrics_node(
 
     collected_metrics: list[MetricData] = []
     collected_evidence: list[EvidenceItem] = []
+    node_errors: list[str] = []
 
     # - Standard Rate Queries
     try:
@@ -68,6 +72,7 @@ async def collect_initial_metrics_node(
             )
     except Exception as exc:
         logger.warning("metrics_error_rate_query_failed", service=service_name, error=str(exc))
+        node_errors.append(f"collect_initial_metrics: error rate query failed: {exc}")
 
     try:
         req_metrics = await client.get_service_request_rate(
@@ -97,6 +102,7 @@ async def collect_initial_metrics_node(
             )
     except Exception as exc:
         logger.warning("metrics_request_rate_query_failed", service=service_name, error=str(exc))
+        node_errors.append(f"collect_initial_metrics: request rate query failed: {exc}")
 
     logger.info(
         "metrics_collected",
@@ -109,4 +115,5 @@ async def collect_initial_metrics_node(
     return {
         "metrics": collected_metrics,
         "evidence": collected_evidence,
+        "errors": node_errors,
     }

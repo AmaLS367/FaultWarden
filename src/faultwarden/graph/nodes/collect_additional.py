@@ -4,11 +4,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import get_logs_provider, get_metrics_provider
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.loki.client import LokiClient
-from faultwarden.integrations.prometheus.client import PrometheusClient
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType
 
 logger = get_logger("faultwarden.graph.nodes.collect_additional")
@@ -17,6 +18,7 @@ logger = get_logger("faultwarden.graph.nodes.collect_additional")
 # --- Additional Telemetry Collection ---
 async def collect_additional_telemetry_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Execute targeted metric or log queries to resolve uncertainty from previous iterations."""
     incident_id = state.get("incident_id", "unknown")
@@ -36,16 +38,21 @@ async def collect_additional_telemetry_node(
     end_time = datetime.now(UTC)
     start_time = end_time - lookback
 
-    prom_client = PrometheusClient(settings.prometheus)
-    loki_client = LokiClient(settings.loki)
+    prom_client = get_metrics_provider(config)
+    loki_client = get_logs_provider(config)
     new_evidence: list[EvidenceItem] = []
+    node_errors: list[str] = []
 
     for query_str in missing_queries[:3]:  # Cap at 3 targeted queries per iteration
         query_clean = query_str.strip()
         if not query_clean:
             continue
 
-        if query_clean.startswith("{") or "log" in query_clean.lower():
+        if query_clean.startswith("{"):
+            # LogQL queries always open with a stream selector; PromQL queries generated
+            # elsewhere in this codebase always start with a function or metric name, so this
+            # distinguishes the two without false-positiving on PromQL metrics/labels that merely
+            # contain the substring "log" (e.g. catalog_requests_total, login_failures_total).
             # Treat as Loki LogQL query
             try:
                 log_entries = await loki_client.query_range(
@@ -68,6 +75,9 @@ async def collect_additional_telemetry_node(
                     )
             except Exception as exc:
                 logger.warning("targeted_loki_query_failed", query=query_clean, error=str(exc))
+                node_errors.append(
+                    f"collect_additional_telemetry: loki query '{query_clean}' failed: {exc}"
+                )
         else:
             # Treat as Prometheus PromQL query
             try:
@@ -91,9 +101,13 @@ async def collect_additional_telemetry_node(
                     )
             except Exception as exc:
                 logger.warning("targeted_promql_query_failed", query=query_clean, error=str(exc))
+                node_errors.append(
+                    f"collect_additional_telemetry: promql query '{query_clean}' failed: {exc}"
+                )
 
     return {
         "iteration_count": next_iteration,
         "evidence": new_evidence,
         "missing_evidence_queries": [],
+        "errors": node_errors,
     }

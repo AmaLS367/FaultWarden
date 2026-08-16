@@ -220,7 +220,6 @@ class MockLLMProvider(LLMProvider):
                 or "db_pool" in lower_prompt
             ):
                 result_ver = HypothesisVerificationResponse(
-                    selected_hypothesis_index=0,
                     is_verified=True,
                     confidence_score=0.90,
                     reasoning="Telemetry confirms database connection pool exhaustion as root cause.",
@@ -228,7 +227,6 @@ class MockLLMProvider(LLMProvider):
                 )
             else:
                 result_ver = HypothesisVerificationResponse(
-                    selected_hypothesis_index=0,
                     is_verified=True,
                     confidence_score=0.82,
                     reasoning="Metrics and logs correlate with unhandled 500 error mode.",

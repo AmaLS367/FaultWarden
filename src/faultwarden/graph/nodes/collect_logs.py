@@ -4,10 +4,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
+from faultwarden.graph.nodes._context import extract_service_name, get_logs_provider
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.integrations.loki.client import LokiClient
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType, LogEntry
 
 logger = get_logger("faultwarden.graph.nodes.collect_logs")
@@ -16,19 +18,20 @@ logger = get_logger("faultwarden.graph.nodes.collect_logs")
 # --- Logs Collection ---
 async def collect_initial_logs_node(
     state: IncidentInvestigationState,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Fetch recent log records from Loki around the incident occurrence window."""
     incident_id = state.get("incident_id", "unknown")
     alert = state.get("alert", {})
     common_labels = alert.get("commonLabels", {})
-    service_name = common_labels.get("job", common_labels.get("service", "demo-service"))
+    service_name = extract_service_name(common_labels, default="demo-service")
 
     settings = get_settings()
     lookback = timedelta(minutes=settings.investigation.logs_lookback_minutes)
     end_time = datetime.now(UTC)
     start_time = end_time - lookback
 
-    client = LokiClient(settings.loki)
+    client = get_logs_provider(config)
     if not await client.check_health():
         logger.info("loki_not_accessible_skipping_logs", service=service_name)
         return {
@@ -38,6 +41,7 @@ async def collect_initial_logs_node(
 
     collected_logs: list[LogEntry] = []
     collected_evidence: list[EvidenceItem] = []
+    node_errors: list[str] = []
 
     try:
         logs = await client.get_service_logs(
@@ -88,6 +92,7 @@ async def collect_initial_logs_node(
             )
     except Exception as exc:
         logger.warning("loki_logs_query_failed", service=service_name, error=str(exc))
+        node_errors.append(f"collect_initial_logs: query failed: {exc}")
 
     logger.info(
         "logs_collected",
@@ -100,4 +105,5 @@ async def collect_initial_logs_node(
     return {
         "logs": collected_logs,
         "evidence": collected_evidence,
+        "errors": node_errors,
     }

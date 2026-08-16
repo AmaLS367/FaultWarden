@@ -54,7 +54,7 @@ faultwarden/
 │       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, and ORM models
 │       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediations)
 │       ├── graph/             # LangGraph state machine, nodes, and workflow builder
-│       ├── services/          # Business logic layer (IncidentService, AlertService)
+│       ├── services/          # Business logic layer (IncidentService, AlertService, InvestigationService)
 │       ├── integrations/      # Provider boundaries & protocols (Prometheus, Loki, LLM)
 │       └── telemetry/         # OpenTelemetry setup boundary & Prometheus metrics
 │
@@ -113,7 +113,7 @@ API Documentation will be available at: [http://localhost:8000/docs](http://loca
 
 ## Running with Docker Compose
 
-Start the full 8-service observability stack (FaultWarden, Demo Service, PostgreSQL, Prometheus, Alertmanager, Loki, Grafana, OpenTelemetry Collector):
+Start the full 9-service observability stack (FaultWarden, Demo Service, Traffic Generator, PostgreSQL, Prometheus, Alertmanager, Loki, Grafana, OpenTelemetry Collector):
 
 ```bash
 docker compose up -d --build

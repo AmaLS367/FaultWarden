@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, Query, status
 
 from faultwarden.api.dependencies import get_incident_service, get_investigation_service
 from faultwarden.db.models.incident import IncidentModel
+from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
-from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
+from faultwarden.schemas.hypothesis import Hypothesis, HypothesisStatus, RootCauseAnalysis
 from faultwarden.schemas.incident import (
     IncidentCreate,
     IncidentFilter,
@@ -23,6 +24,20 @@ from faultwarden.services.investigation_service import InvestigationService
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
 
+def _select_hypothesis(
+    hypotheses: list[Hypothesis], root_cause: RootCauseAnalysis | None
+) -> Hypothesis | None:
+    """Derive the winning hypothesis from the persisted list, since it isn't stored separately."""
+    if root_cause is not None:
+        for hyp in hypotheses:
+            if hyp.id == root_cause.primary_hypothesis_id:
+                return hyp
+    for hyp in hypotheses:
+        if hyp.status == HypothesisStatus.VERIFIED:
+            return hyp
+    return None
+
+
 def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
     """Construct a typed InvestigationDetail schema from an IncidentModel database entity."""
     evidence_items = [EvidenceItem.model_validate(e) for e in (incident.evidence or [])]
@@ -33,16 +48,21 @@ def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
     proposals = [
         RemediationProposal.model_validate(r) for r in (incident.proposed_remediations or [])
     ]
+    classification = (
+        IncidentClassification.model_validate(incident.classification)
+        if incident.classification
+        else None
+    )
     return InvestigationDetail(
         incident_id=incident.id,
         status=incident.status,
         severity=incident.severity,
         service=incident.service,
-        classification=None,
-        iteration_count=1,
+        classification=classification,
+        iteration_count=incident.iteration_count,
         evidence=evidence_items,
         hypotheses=hypotheses,
-        selected_hypothesis=None,
+        selected_hypothesis=_select_hypothesis(hypotheses, root_cause),
         root_cause=root_cause,
         remediation_proposals=proposals,
         summary=incident.summary,
