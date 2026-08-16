@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
-from faultwarden.graph.nodes._context import extract_service_name, get_metrics_provider
+from faultwarden.graph.nodes._context import get_metrics_provider, resolve_service_from_state
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType, MetricData
 
@@ -22,9 +22,7 @@ async def collect_initial_metrics_node(
 ) -> dict[str, Any]:
     """Gather time-series telemetry from Prometheus covering the incident window."""
     incident_id = state.get("incident_id", "unknown")
-    alert = state.get("alert", {})
-    common_labels = alert.get("commonLabels", {})
-    service_name = extract_service_name(common_labels, default="demo-service")
+    service_name = resolve_service_from_state(state, default="demo-service")
 
     settings = get_settings()
     lookback = timedelta(minutes=settings.investigation.metrics_lookback_minutes)

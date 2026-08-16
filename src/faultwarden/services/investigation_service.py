@@ -9,9 +9,9 @@ from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import build_incident_graph
-from faultwarden.integrations.llm.provider import get_llm_provider
-from faultwarden.integrations.loki.client import LokiClient
-from faultwarden.integrations.prometheus.client import PrometheusClient
+from faultwarden.integrations.llm.provider import LLMProvider, get_llm_provider
+from faultwarden.integrations.loki.client import LogsProvider, LokiClient
+from faultwarden.integrations.prometheus.client import MetricsProvider, PrometheusClient
 from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
@@ -29,8 +29,17 @@ logger = get_logger("faultwarden.services.investigation")
 class InvestigationService:
     """Orchestrates LangGraph investigation execution and persists findings into domain models."""
 
-    def __init__(self, incident_service: IncidentService) -> None:
+    def __init__(
+        self,
+        incident_service: IncidentService,
+        metrics_provider: MetricsProvider | None = None,
+        logs_provider: LogsProvider | None = None,
+        llm_provider: LLMProvider | None = None,
+    ) -> None:
         self.incident_service = incident_service
+        self.metrics_provider = metrics_provider
+        self.logs_provider = logs_provider
+        self.llm_provider = llm_provider
 
     # --- Synchronous / Direct Graph Run ---
     async def run_investigation(self, incident_id: UUID | str) -> IncidentModel:
@@ -39,8 +48,6 @@ class InvestigationService:
         incident_id_str = str(incident.id)
 
         logger.info("investigation_run_triggered", incident_id=incident_id_str)
-
-        await self.incident_service.transition_status(incident.id, IncidentStatus.INVESTIGATING)
 
         initial_state: IncidentInvestigationState = {
             "incident_id": incident_id_str,
@@ -70,15 +77,25 @@ class InvestigationService:
 
         graph = build_incident_graph()
         settings = get_settings()
+        metrics = self.metrics_provider or PrometheusClient(settings.prometheus)
+        logs = self.logs_provider or LokiClient(settings.loki)
+        llm = self.llm_provider or get_llm_provider()
+
         run_config: RunnableConfig = {
             "configurable": {
-                "metrics_provider": PrometheusClient(settings.prometheus),
-                "logs_provider": LokiClient(settings.loki),
-                "llm_provider": get_llm_provider(),
+                "metrics_provider": metrics,
+                "logs_provider": logs,
+                "llm_provider": llm,
             }
         }
 
         try:
+            # Commit the INVESTIGATING transition immediately so concurrent readers see it
+            # right away, instead of holding one long-lived transaction open for the whole
+            # (potentially 30-90s) graph run below.
+            await self.incident_service.transition_status(incident.id, IncidentStatus.INVESTIGATING)
+            await self.incident_service.session.commit()
+
             final_state: dict[str, Any] = await graph.ainvoke(initial_state, config=run_config)
 
             evidence_items = final_state.get("evidence", [])
@@ -118,6 +135,7 @@ class InvestigationService:
             )
 
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)
+            await self.incident_service.session.commit()
 
             logger.info(
                 "investigation_run_completed",
@@ -136,8 +154,16 @@ class InvestigationService:
                 incident_id=incident_id_str,
                 error=str(exc),
             )
+            try:
+                await self.incident_service.session.rollback()
+            except Exception as rollback_exc:
+                logger.error(
+                    "investigation_session_rollback_failed",
+                    incident_id=incident_id_str,
+                    error=str(rollback_exc),
+                )
             # Write the failure record through a fresh session so it survives regardless of
-            # how the caller's own transaction resolves (it will roll back on this exception).
+            # how the caller's own session/transaction resolves.
             try:
                 fail_summary = f"Investigation failed with error: {exc}"
                 session_factory = get_session_factory()
@@ -165,7 +191,7 @@ async def run_background_investigation(incident_id: UUID | str) -> None:
     logger.info("launching_background_investigation", incident_id=str(incident_id))
     session_factory = get_session_factory()
     try:
-        async with session_factory() as session, session.begin():
+        async with session_factory() as session:
             incident_service = IncidentService(session)
             investigation_service = InvestigationService(incident_service)
             await investigation_service.run_investigation(incident_id)

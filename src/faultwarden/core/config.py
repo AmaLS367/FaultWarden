@@ -59,14 +59,14 @@ class PrometheusSettings(BaseModel):
     """Prometheus integration settings."""
 
     url: str = Field(default="http://localhost:9090", description="Prometheus base URL")
-    timeout_seconds: float = Field(default=2.0, description="HTTP request timeout in seconds")
+    timeout_seconds: float = Field(default=10.0, description="HTTP request timeout in seconds")
 
 
 class LokiSettings(BaseModel):
     """Grafana Loki log ingestion settings."""
 
     url: str = Field(default="http://localhost:3100", description="Loki base URL")
-    timeout_seconds: float = Field(default=2.0, description="HTTP request timeout in seconds")
+    timeout_seconds: float = Field(default=10.0, description="HTTP request timeout in seconds")
 
 
 class LLMSettings(BaseModel):

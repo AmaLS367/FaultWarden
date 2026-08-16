@@ -7,7 +7,10 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 
 from faultwarden.core.logging import get_logger
-from faultwarden.graph.nodes._context import get_llm_provider_from_config
+from faultwarden.graph.nodes._context import (
+    get_llm_provider_from_config,
+    resolve_service_from_state,
+)
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.integrations.llm.provider import wrap_untrusted_telemetry
 from faultwarden.schemas.hypothesis import (
@@ -27,7 +30,6 @@ async def generate_hypotheses_node(
     """Generate structured candidate root-cause hypotheses from accumulated evidence."""
     incident_id = state.get("incident_id", "unknown")
     evidence_list = state.get("evidence", [])
-    alert = state.get("alert", {})
     classification = state.get("classification")
 
     logger.info(
@@ -123,7 +125,7 @@ async def generate_hypotheses_node(
 
     # - Fallback Heuristic if LLM returned nothing or failed
     if not hypotheses:
-        service_name = alert.get("commonLabels", {}).get("service", "demo-service")
+        service_name = resolve_service_from_state(state, default="demo-service")
         evidence_ids = [e.id for e in evidence_list]
 
         has_pool_error = any(

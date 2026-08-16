@@ -84,18 +84,33 @@ async def collect_additional_telemetry_node(
                 metrics = await prom_client.query_range(
                     expr=query_clean, start=start_time, end=end_time, step="15s"
                 )
-                for m in metrics:
-                    latest_val = m.values[-1].value if m.values else 0.0
+                if metrics:
+                    for m in metrics:
+                        latest_val = m.values[-1].value if m.values else 0.0
+                        new_evidence.append(
+                            EvidenceItem(
+                                id=str(uuid4()),
+                                evidence_type=EvidenceType.METRIC,
+                                source="prometheus",
+                                collected_at=datetime.now(UTC),
+                                confidence=1.0,
+                                relevance=0.9,
+                                summary=f"Targeted PromQL query '{query_clean}' evaluated to {latest_val:.2f}",
+                                data={"query": query_clean, "latest_value": latest_val},
+                                query_reference=query_clean,
+                            )
+                        )
+                else:
                     new_evidence.append(
                         EvidenceItem(
                             id=str(uuid4()),
                             evidence_type=EvidenceType.METRIC,
                             source="prometheus",
                             collected_at=datetime.now(UTC),
-                            confidence=1.0,
-                            relevance=0.9,
-                            summary=f"Targeted PromQL query '{query_clean}' evaluated to {latest_val:.2f}",
-                            data={"query": query_clean, "latest_value": latest_val},
+                            confidence=0.9,
+                            relevance=0.7,
+                            summary=f"Targeted PromQL query '{query_clean}' returned no metric data (0 series active).",
+                            data={"query": query_clean, "series_count": 0},
                             query_reference=query_clean,
                         )
                     )

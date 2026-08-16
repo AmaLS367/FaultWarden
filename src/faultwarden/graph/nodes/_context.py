@@ -1,5 +1,6 @@
 """Shared helpers for LangGraph investigation nodes: label extraction and provider resolution."""
 
+from collections.abc import Mapping
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -24,6 +25,30 @@ def extract_service_name(common_labels: dict[str, str], default: str) -> str:
         return common_labels["service"]
     if common_labels.get("job"):
         return common_labels["job"]
+    return default
+
+
+def resolve_service_from_state(state: Mapping[str, Any], default: str = "demo-service") -> str:
+    """Resolve the affected service name from incident context, common labels, or individual alert items."""
+    ctx_service = state.get("incident_context", {}).get("service")
+    if ctx_service and ctx_service not in ("unknown", "unknown-service"):
+        return str(ctx_service)
+
+    alert = state.get("alert", {})
+    common_labels = alert.get("commonLabels", {})
+    if common_labels.get("service"):
+        return str(common_labels["service"])
+    if common_labels.get("job"):
+        return str(common_labels["job"])
+
+    alerts = alert.get("alerts", [])
+    if alerts and isinstance(alerts, list) and isinstance(alerts[0], dict):
+        first_labels = alerts[0].get("labels", {})
+        if first_labels.get("service"):
+            return str(first_labels["service"])
+        if first_labels.get("job"):
+            return str(first_labels["job"])
+
     return default
 
 

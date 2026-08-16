@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
-from faultwarden.graph.nodes._context import extract_service_name, get_logs_provider
+from faultwarden.graph.nodes._context import get_logs_provider, resolve_service_from_state
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType, LogEntry
 
@@ -22,9 +22,7 @@ async def collect_initial_logs_node(
 ) -> dict[str, Any]:
     """Fetch recent log records from Loki around the incident occurrence window."""
     incident_id = state.get("incident_id", "unknown")
-    alert = state.get("alert", {})
-    common_labels = alert.get("commonLabels", {})
-    service_name = extract_service_name(common_labels, default="demo-service")
+    service_name = resolve_service_from_state(state, default="demo-service")
 
     settings = get_settings()
     lookback = timedelta(minutes=settings.investigation.logs_lookback_minutes)
@@ -71,7 +69,7 @@ async def collect_initial_logs_node(
                         "timestamp": entry.timestamp.isoformat(),
                         "labels": entry.labels,
                     },
-                    query_reference=f'{{service="{service_name}"}}',
+                    query_reference=f'{{service="{service_name}"}} or {{job="{service_name}"}}',
                 )
             )
 
@@ -87,7 +85,7 @@ async def collect_initial_logs_node(
                     relevance=0.6,
                     summary=f"Retrieved {len(logs)} log entries from '{service_name}' with no explicit ERROR level.",
                     data={"total_count": len(logs)},
-                    query_reference=f'{{service="{service_name}"}}',
+                    query_reference=f'{{service="{service_name}"}} or {{job="{service_name}"}}',
                 )
             )
     except Exception as exc:

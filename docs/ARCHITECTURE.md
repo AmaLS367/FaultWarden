@@ -58,7 +58,7 @@
 
 The end-to-end incident ingestion pipeline progresses through the following steps:
 
-1. **Anomaly Detection**: Prometheus scrapes application metrics (e.g. `demo_http_requests_total`) and evaluates alerting rules (e.g. `High5xxRate`).
+1. **Anomaly Detection**: Prometheus scrapes application metrics (e.g. `http_requests_total`) and evaluates alerting rules (e.g. `DemoServiceHighErrorRate`).
 2. **Alert Dispatch**: Prometheus sends firing alerts to Alertmanager.
 3. **Webhook Ingestion**: Alertmanager invokes the FaultWarden webhook:
    ```text

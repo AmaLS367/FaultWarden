@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from faultwarden.core.logging import get_logger
-from faultwarden.graph.nodes._context import extract_service_name
+from faultwarden.graph.nodes._context import resolve_service_from_state
 from faultwarden.graph.state import IncidentInvestigationState
 from faultwarden.schemas.classification import IncidentCategory, IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem, EvidenceType
@@ -24,7 +24,7 @@ async def classify_incident_node(
     common_annotations = alert.get("commonAnnotations", {})
 
     alert_name = common_labels.get("alertname", "UnknownAlert")
-    service_name = extract_service_name(common_labels, default="unknown-service")
+    service_name = resolve_service_from_state(state, default="unknown-service")
     severity = common_labels.get("severity", "MEDIUM").upper()
     description = common_annotations.get("description", common_annotations.get("summary", ""))
 

@@ -128,3 +128,120 @@ async def test_langgraph_handles_prompt_injection_telemetry() -> None:
                 "restart_service",
                 "rollback_deployment",
             )
+
+
+@pytest.mark.asyncio
+async def test_graph_service_resolution_from_individual_alert_labels() -> None:
+    """Verify that the graph resolves the service name when only present in alerts[0].labels."""
+    graph = build_incident_graph()
+
+    state: IncidentInvestigationState = {
+        "incident_id": "inc-per-alert-test",
+        "incident_context": {"service": "payment-gateway"},
+        "alert": {
+            "commonLabels": {"alertname": "PaymentTimeout"},
+            "alerts": [{"labels": {"service": "payment-gateway"}}],
+        },
+        "classification": None,
+        "evidence": [],
+        "metrics": [],
+        "logs": [],
+        "traces": [],
+        "recent_changes": [],
+        "hypotheses": [],
+        "selected_hypothesis": None,
+        "root_cause": None,
+        "remediation_proposals": [],
+        "iteration_count": 1,
+        "missing_evidence_queries": [],
+        "investigation_status": "INVESTIGATING",
+        "summary": "",
+        "errors": [],
+    }
+
+    final_state = await graph.ainvoke(state)
+    assert final_state["classification"] is not None
+    assert any("payment-gateway" in q for q in final_state["classification"].suggested_queries)
+    assert any("payment-gateway" in e.summary for e in final_state["evidence"])
+
+
+@pytest.mark.asyncio
+async def test_propose_remediation_level_0_mapping() -> None:
+    """Verify that propose_remediation maps safety_level=0 to LEVEL_0_READ_ONLY."""
+    from unittest.mock import AsyncMock
+
+    from faultwarden.graph.nodes.propose_remediation import propose_remediation_node
+    from faultwarden.schemas.hypothesis import Hypothesis
+    from faultwarden.schemas.remediation import (
+        RemediationActionCandidate,
+        RemediationProposalResponse,
+    )
+
+    mock_llm = AsyncMock()
+    mock_llm.generate_structured.return_value = RemediationProposalResponse(
+        title="Diagnostic Proposal",
+        summary="Read-only diagnostic plan",
+        actions=[
+            RemediationActionCandidate(
+                name="Inspect Connection Stats",
+                target_service="demo-service",
+                safety_level=0,
+                action_type="inspect_connection_stats",
+                description="Query connection pool statistics safely",
+            )
+        ],
+    )
+
+    test_hyp = Hypothesis(
+        id="hyp-0",
+        title="Test Hyp",
+        description="Test",
+        affected_component="demo-service",
+        confidence_score=0.9,
+        status=HypothesisStatus.VERIFIED,
+    )
+
+    state: IncidentInvestigationState = {
+        "incident_id": "inc-test",
+        "incident_context": {"service": "demo-service"},
+        "alert": {},
+        "selected_hypothesis": test_hyp,
+        "root_cause": None,
+        "remediation_proposals": [],
+        "evidence": [],
+        "hypotheses": [test_hyp],
+        "errors": [],
+    }
+
+    config = {"configurable": {"llm_provider": mock_llm}}
+    result = await propose_remediation_node(state, config=config)
+    proposals = result["remediation_proposals"]
+    assert len(proposals) == 1
+    assert proposals[0].actions[0].safety_level == RemediationSafetyLevel.LEVEL_0_READ_ONLY
+
+
+@pytest.mark.asyncio
+async def test_collect_additional_telemetry_empty_promql_generates_negative_evidence() -> None:
+    """Verify that empty PromQL metric results emit negative evidence to unblock graph iterations."""
+    from unittest.mock import AsyncMock
+
+    from faultwarden.graph.nodes.collect_additional import collect_additional_telemetry_node
+
+    mock_prom = AsyncMock()
+    mock_prom.query_range.return_value = []
+
+    state: IncidentInvestigationState = {
+        "incident_id": "inc-empty-promql-test",
+        "incident_context": {"service": "demo-service"},
+        "missing_evidence_queries": ['rate(http_requests_total{job="nonexistent"}[1m])'],
+        "evidence": [],
+        "iteration_count": 1,
+        "errors": [],
+    }
+
+    config = {"configurable": {"metrics_provider": mock_prom}}
+    result = await collect_additional_telemetry_node(state, config=config)
+    evidence = result["evidence"]
+    assert len(evidence) == 1
+    assert "returned no metric data (0 series active)" in evidence[0].summary
+    assert evidence[0].data["series_count"] == 0

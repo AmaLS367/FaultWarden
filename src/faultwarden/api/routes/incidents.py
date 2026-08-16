@@ -28,6 +28,8 @@ def _select_hypothesis(
     hypotheses: list[Hypothesis], root_cause: RootCauseAnalysis | None
 ) -> Hypothesis | None:
     """Derive the winning hypothesis from the persisted list, since it isn't stored separately."""
+    if not hypotheses:
+        return None
     if root_cause is not None:
         for hyp in hypotheses:
             if hyp.id == root_cause.primary_hypothesis_id:
@@ -35,7 +37,10 @@ def _select_hypothesis(
     for hyp in hypotheses:
         if hyp.status == HypothesisStatus.VERIFIED:
             return hyp
-    return None
+    inconclusive_hypotheses = [h for h in hypotheses if h.status == HypothesisStatus.INCONCLUSIVE]
+    if inconclusive_hypotheses:
+        return max(inconclusive_hypotheses, key=lambda h: h.confidence_score)
+    return max(hypotheses, key=lambda h: h.confidence_score)
 
 
 def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:

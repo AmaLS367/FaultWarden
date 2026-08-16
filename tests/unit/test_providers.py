@@ -367,8 +367,6 @@ async def test_loki_check_health_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.asyncio
 async def test_loki_check_health_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """check_health() should return False when the request fails."""
-
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
@@ -376,3 +374,50 @@ async def test_loki_check_health_failure(monkeypatch: pytest.MonkeyPatch) -> Non
     client = LokiClient(LokiSettings(url="http://loki.local"))
 
     assert await client.check_health() is False
+
+
+@pytest.mark.asyncio
+async def test_loki_get_service_logs_fallback_to_job_on_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_service_logs() should fall back to job query when service query returns empty results."""
+    queries_received: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        query_param = request.url.params.get("query", "")
+        queries_received.append(query_param)
+        if 'service="demo"' in query_param:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {"resultType": "streams", "result": []},
+                },
+            )
+        # Fallback query with job label
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "streams",
+                    "result": [
+                        {
+                            "stream": {"job": "demo", "level": "ERROR"},
+                            "values": [["1723740000000000000", "error via job label"]],
+                        }
+                    ],
+                },
+            },
+        )
+
+    _install_mock_transport(monkeypatch, handler)
+    client = LokiClient(LokiSettings(url="http://loki.local"))
+
+    now = datetime.now(UTC)
+    logs = await client.get_service_logs("demo", start=now, end=now, level="error")
+    assert len(logs) == 1
+    assert logs[0].message == "error via job label"
+    assert len(queries_received) == 2
+    assert '{service="demo", level="error"}' in queries_received[0]
+    assert '{job="demo", level="error"}' in queries_received[1]

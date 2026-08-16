@@ -74,11 +74,12 @@ async def propose_remediation_node(
         rollback_plan = response.rollback_plan or rollback_plan
 
         for act in response.actions:
-            level = (
-                RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC
-                if act.safety_level == 1
-                else RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED
-            )
+            if act.safety_level == 0:
+                level = RemediationSafetyLevel.LEVEL_0_READ_ONLY
+            elif act.safety_level == 1:
+                level = RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC
+            else:
+                level = RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED
             actions.append(
                 RemediationAction(
                     id=str(uuid4()),

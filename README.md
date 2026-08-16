@@ -14,7 +14,7 @@
 ## Current Status
 
 > [!NOTE]
-> **Scaffold Phase**: The core production architecture, domain models, database persistence, Alertmanager webhook pipeline, LangGraph state machine, provider boundaries, and complete observability stack are fully implemented and tested. Real LLM automated reasoning and auto-remediations are scheduled for upcoming milestones.
+> **Active Development (v0.2 Milestone)**: The core production architecture, domain models, database persistence, Alertmanager webhook pipeline, full LangGraph reasoning state machine (classification, telemetry collection, LLM hypothesis generation, verification loops, remediation proposals), provider boundaries (OpenAI, Prometheus, Loki), and complete observability stack are fully implemented and tested.
 
 ---
 
@@ -63,7 +63,7 @@ faultwarden/
 ├── migrations/                # Alembic async database migrations
 ├── tests/                     # Unit and integration test suite (pytest + pytest-asyncio)
 ├── docs/                      # ARCHITECTURE.md (Deep dive into safety models and graph flow)
-├── docker-compose.yml         # 8-service local development stack
+├── docker-compose.yml         # 9-service local development stack
 ├── Dockerfile                 # Multi-stage production container build
 ├── pyproject.toml             # Dependencies and strict tool configuration (Ruff, Mypy, Pytest)
 ├── LICENSE                    # Apache 2.0 License

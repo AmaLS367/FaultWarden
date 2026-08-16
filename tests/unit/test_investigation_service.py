@@ -17,6 +17,7 @@ from faultwarden.schemas.incident import (
     IncidentCreate,
     IncidentSeverity,
     IncidentStatus,
+    IncidentUpdate,
 )
 from faultwarden.schemas.remediation import RemediationSafetyLevel
 from faultwarden.services.incident_service import IncidentService
@@ -185,3 +186,51 @@ async def test_weak_hypothesis_triggers_bounded_iteration_loop() -> None:
         RemediationSafetyLevel.LEVEL_1_SAFE_AUTOMATIC,
         RemediationSafetyLevel.LEVEL_2_HUMAN_APPROVAL_REQUIRED,
     )
+
+
+@pytest.mark.asyncio
+async def test_investigation_inconclusive_selected_hypothesis_endpoint(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """GET /incidents/{id}/investigation should populate selected_hypothesis even when inconclusive."""
+    incident_service = IncidentService(session=db_session)
+    create_dto = IncidentCreate(
+        title="[WARNING] Intermittent spike",
+        status=IncidentStatus.DETECTED,
+        severity=IncidentSeverity.MEDIUM,
+        source="alertmanager",
+        summary="Brief intermittent alert",
+        fingerprint="fp-test-inconclusive-01",
+        service="demo-service",
+        alert_status="firing",
+        alert_payload={},
+    )
+    incident = await incident_service.create_incident(create_dto)
+
+    # Persist an investigation result that ended in INCONCLUSIVE status
+    inconclusive_hyp = Hypothesis(
+        id="hyp-inconclusive-1",
+        title="Potential Network Flap",
+        description="Network jitter between microservices",
+        affected_component="demo-service",
+        confidence_score=0.65,
+        status=HypothesisStatus.INCONCLUSIVE,
+        supporting_evidence_ids=[],
+    )
+
+    update_dto = IncidentUpdate(
+        status=IncidentStatus.REMEDIATION_PROPOSED,
+        hypotheses=[inconclusive_hyp],
+        root_cause=None,
+        summary="Leading hypothesis: Potential Network Flap",
+    )
+    await incident_service.update_incident(incident.id, update_dto)
+
+    resp = await client.get(f"/api/v1/incidents/{incident.id}/investigation")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["selected_hypothesis"] is not None
+    assert data["selected_hypothesis"]["id"] == "hyp-inconclusive-1"
+    assert data["selected_hypothesis"]["title"] == "Potential Network Flap"
+    assert data["root_cause"] is None

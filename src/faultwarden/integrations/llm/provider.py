@@ -137,7 +137,11 @@ class MockLLMProvider(LLMProvider):
     def __init__(self, settings: LLMSettings | None = None) -> None:
         self._settings = settings or get_settings().llm
 
-    async def generate_text(self, prompt: str, _system_prompt: str | None = None) -> str:
+    async def generate_text(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,  # noqa: ARG002
+    ) -> str:
         """Return deterministic explanation."""
         return f"Mock analysis for prompt with length {len(prompt)}"
 
@@ -145,7 +149,7 @@ class MockLLMProvider(LLMProvider):
         self,
         prompt: str,
         schema: type[T],
-        _system_prompt: str | None = None,
+        system_prompt: str | None = None,  # noqa: ARG002
     ) -> T:
         """Produce realistic structured objects based on prompt analysis."""
         schema_name = getattr(schema, "__name__", str(schema))
@@ -215,6 +219,18 @@ class MockLLMProvider(LLMProvider):
             from faultwarden.schemas.hypothesis import HypothesisVerificationResponse
 
             if (
+                "no evidence collected" in lower_prompt
+                or "unconfirmed" in lower_prompt
+                or "weak" in lower_prompt
+                or "insufficient telemetry" in lower_prompt
+            ):
+                result_ver = HypothesisVerificationResponse(
+                    is_verified=False,
+                    confidence_score=0.35,
+                    reasoning="Insufficient telemetry to verify hypothesis; additional metric/log queries required.",
+                    additional_queries_needed=["sum(rate(http_requests_total[1m]))"],
+                )
+            elif (
                 "pool exhausted" in lower_prompt
                 or "connection pool" in lower_prompt
                 or "db_pool" in lower_prompt

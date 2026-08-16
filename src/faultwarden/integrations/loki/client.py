@@ -121,11 +121,14 @@ class LokiClient(LogsProvider):
         query = f'{{service="{clean_service}"{level_selector}}}'
 
         try:
-            return await self.query_range(query, start, end, limit=limit)
+            logs = await self.query_range(query, start, end, limit=limit)
+            if logs:
+                return logs
         except Exception:
-            # Fallback to job label if service label yields nothing or fails
-            job_query = f'{{job="{clean_service}"{level_selector}}}'
-            return await self.query_range(job_query, start, end, limit=limit)
+            pass
+        # Fallback to job label if service label yields nothing or fails
+        job_query = f'{{job="{clean_service}"{level_selector}}}'
+        return await self.query_range(job_query, start, end, limit=limit)
 
     # --- Result Parsing ---
     def _parse_result(self, payload: dict[str, Any]) -> list[LogEntry]:

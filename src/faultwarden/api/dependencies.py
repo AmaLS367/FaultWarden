@@ -39,13 +39,6 @@ def get_alert_service(
     return AlertService(incident_service=incident_service)
 
 
-def get_investigation_service(
-    incident_service: IncidentService = Depends(get_incident_service),
-) -> InvestigationService:
-    """Dependency for InvestigationService."""
-    return InvestigationService(incident_service=incident_service)
-
-
 # --- Integration Provider Dependencies ---
 def get_metrics_provider() -> MetricsProvider:
     """Dependency for Prometheus/MetricsProvider."""
@@ -60,3 +53,18 @@ def get_logs_provider() -> LogsProvider:
 def get_llm_provider() -> LLMProvider:
     """Dependency for LLMProvider."""
     return get_default_llm_provider()
+
+
+def get_investigation_service(
+    incident_service: IncidentService = Depends(get_incident_service),
+    metrics_provider: MetricsProvider = Depends(get_metrics_provider),
+    logs_provider: LogsProvider = Depends(get_logs_provider),
+    llm_provider: LLMProvider = Depends(get_llm_provider),
+) -> InvestigationService:
+    """Dependency for InvestigationService."""
+    return InvestigationService(
+        incident_service=incident_service,
+        metrics_provider=metrics_provider,
+        logs_provider=logs_provider,
+        llm_provider=llm_provider,
+    )
