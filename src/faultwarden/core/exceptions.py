@@ -65,6 +65,13 @@ class LLMError(ProviderError):
         super().__init__("llm", message, status_code)
 
 
+class RemediationExecutionError(ProviderError):
+    """Raised when a remediation executor fails to complete its bounded capability call."""
+
+    def __init__(self, executor: str, message: str, status_code: int | None = None) -> None:
+        super().__init__(f"executor:{executor}", message, status_code)
+
+
 # --- Safety & Workflow Exceptions ---
 class RemediationSafetyError(FaultWardenError):
     """Raised when a remediation violates the safety tier or policy."""

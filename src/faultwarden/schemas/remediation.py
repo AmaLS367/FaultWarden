@@ -165,6 +165,26 @@ class RemediationResult(BaseModel):
     after_state: dict[str, Any] | None = None
 
 
+# --- Demo Service Response Schemas ---
+class DemoServiceErrorModeResponse(BaseModel):
+    """Response payload from demo service error mode endpoints."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str
+    error_mode: bool
+    message: str
+
+
+class DemoServiceHealthResponse(BaseModel):
+    """Response payload from demo service health check endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str
+    service: str
+
+
 # --- LLM Structured Output Models (Untrusted) ---
 class RemediationActionCandidate(BaseModel):
     """Action candidate proposed by LLM (untrusted input requiring validation)."""
