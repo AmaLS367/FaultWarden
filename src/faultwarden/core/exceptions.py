@@ -24,6 +24,27 @@ class IncidentNotFoundError(FaultWardenError):
         self.incident_id = incident_id
 
 
+class RemediationActionNotFoundError(FaultWardenError):
+    """Raised when a remediation action ID does not exist."""
+
+    def __init__(self, action_id: str) -> None:
+        super().__init__(
+            f"Remediation action with ID '{action_id}' was not found.", {"action_id": action_id}
+        )
+        self.action_id = action_id
+
+
+class RemediationProposalNotFoundError(FaultWardenError):
+    """Raised when a remediation proposal ID does not exist."""
+
+    def __init__(self, proposal_id: str) -> None:
+        super().__init__(
+            f"Remediation proposal with ID '{proposal_id}' was not found.",
+            {"proposal_id": proposal_id},
+        )
+        self.proposal_id = proposal_id
+
+
 class InvalidAlertPayloadError(FaultWardenError):
     """Raised when an incoming alert payload fails validation or parsing."""
 

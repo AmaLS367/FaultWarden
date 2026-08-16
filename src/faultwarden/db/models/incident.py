@@ -46,6 +46,7 @@ class IncidentModel(Base, TimestampMixin):
     alert_status: Mapped[str | None] = mapped_column(
         String(30), nullable=True, default="firing", index=True
     )
+    langgraph_thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     # --- Structured JSON Payloads & Investigation State ---
     alert_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
