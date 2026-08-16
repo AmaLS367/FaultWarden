@@ -18,13 +18,13 @@ When modifying this repository, you **MUST** strictly adhere to the rules, bound
 
 ## 2. Repository Layout
 
-* `src/faultwarden/api/`: FastAPI routes, dependency injection, and router aggregation.
-* `src/faultwarden/core/`: Configuration (`BaseSettings`), structured logging (`structlog`), and domain exception hierarchy.
-* `src/faultwarden/db/`: SQLAlchemy 2 async engine, declarative base, and models (`IncidentModel`).
-* `src/faultwarden/schemas/`: Pydantic v2 domain schemas (`AlertmanagerPayload`, `IncidentRead`, `EvidenceItem`, `Hypothesis`, `RemediationProposal`).
-* `src/faultwarden/graph/`: LangGraph `StateGraph`, `IncidentInvestigationState`, and deterministic node definitions.
-* `src/faultwarden/services/`: Business logic (`IncidentService`, `AlertService`, `InvestigationService`).
-* `src/faultwarden/integrations/`: Provider boundary protocols (`MetricsProvider`, `LogsProvider`, `LLMProvider`) and concrete clients.
+* `src/faultwarden/api/`: FastAPI routes (including `routes/remediations.py` — approve/reject API), dependency injection, and router aggregation.
+* `src/faultwarden/core/`: Configuration (`BaseSettings`), structured logging (`structlog`), domain exception hierarchy, and the deterministic remediation policy engine (`core/policy.py`).
+* `src/faultwarden/db/`: SQLAlchemy 2 async engine, declarative base, and models (`IncidentModel`, `db/models/remediation.py`).
+* `src/faultwarden/schemas/`: Pydantic v2 domain schemas (`AlertmanagerPayload`, `IncidentRead`, `EvidenceItem`, `Hypothesis`, `RemediationProposal`/`RemediationAction`/`PolicyResult`/`ApprovalContext` in `schemas/remediation.py`).
+* `src/faultwarden/graph/`: LangGraph `StateGraph`, `IncidentInvestigationState`, deterministic node definitions, and the durable checkpointer (`graph/checkpointer.py`).
+* `src/faultwarden/services/`: Business logic (`IncidentService`, `AlertService`, `InvestigationService`, `RemediationAuditService`).
+* `src/faultwarden/integrations/`: Provider boundary protocols (`MetricsProvider`, `LogsProvider`, `LLMProvider`) and concrete clients, plus bounded remediation executors (`integrations/executors/`).
 * `src/faultwarden/telemetry/`: OpenTelemetry setup boundary and Prometheus `/metrics` registry.
 * `demo_service/`: Standalone breakable FastAPI service exposing `/health`, `/debug/error-mode/{enabled}`, and `/metrics`.
 * `observability/`: Prometheus, Alertmanager, Loki, Grafana, and OpenTelemetry collector configurations.

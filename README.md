@@ -14,7 +14,13 @@
 ## Current Status
 
 > [!NOTE]
-> **Active Development (v0.2 Milestone)**: The core production architecture, domain models, database persistence, Alertmanager webhook pipeline, full LangGraph reasoning state machine (classification, telemetry collection, LLM hypothesis generation, verification loops, remediation proposals), provider boundaries (OpenAI, Prometheus, Loki), and complete observability stack are fully implemented and tested.
+> **v0.3 Milestone — Remediation Engine**: On top of v0.1's detection pipeline and v0.2's
+> LangGraph investigation, FaultWarden now proposes, deterministically classifies, optionally
+> gates behind durable human approval (real LangGraph `interrupt()`/resume backed by PostgreSQL),
+> executes through a tiny set of bounded capabilities, and independently validates whether an
+> incident actually recovered before ever marking it resolved. See
+> [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-remediation-engine-v03) for the full design —
+> trust boundary, policy matrix, approval API, executors, validation semantics, and limits.
 
 ---
 
@@ -49,13 +55,14 @@ faultwarden/
 ├── .github/workflows/         # CI/CD pipelines (ci.yml, docker.yml)
 ├── src/
 │   └── faultwarden/
-│       ├── api/               # FastAPI routers, dependencies, endpoints (/health, /alerts, /incidents)
-│       ├── core/              # Pydantic Settings, structlog logging, domain exceptions
-│       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, and ORM models
-│       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediations)
-│       ├── graph/             # LangGraph state machine, nodes, and workflow builder
-│       ├── services/          # Business logic layer (IncidentService, AlertService, InvestigationService)
-│       ├── integrations/      # Provider boundaries & protocols (Prometheus, Loki, LLM)
+│       ├── api/               # FastAPI routers: /health, /alerts, /incidents, /incidents/{id}/remediations
+│       ├── core/              # Pydantic Settings, structlog logging, domain exceptions, policy engine
+│       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, ORM models (Incident + Remediation*)
+│       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediation)
+│       ├── graph/             # LangGraph state machine, nodes, checkpointer, and workflow builder
+│       ├── services/          # Business logic layer (IncidentService, AlertService, InvestigationService,
+│       │                      #   RemediationAuditService)
+│       ├── integrations/      # Provider boundaries & protocols (Prometheus, Loki, LLM, remediation executors)
 │       └── telemetry/         # OpenTelemetry setup boundary & Prometheus metrics
 │
 ├── demo_service/              # Breakable demo service with deterministic error simulation (/debug/error-mode)
@@ -165,7 +172,36 @@ With the stack running (`docker compose up -d`), background traffic is automatic
    curl http://localhost:8000/api/v1/incidents
    ```
 
-4. **Disable error mode and observe recovery**:
+4. **Watch the investigation and remediation run automatically**:
+
+   Background investigation auto-triggers on incident creation. Poll until the status stops
+   changing:
+
+   ```bash
+   curl http://localhost:8000/api/v1/incidents/{incident_id}
+   ```
+
+   It lands on one of: `RESOLVED` (a Level 1 action auto-executed and validation confirmed
+   recovery), `AWAITING_APPROVAL` (a Level 2 action is durably paused, waiting on you — see step 5),
+   or `REMEDIATION_PROPOSED` (proposed but rejected by policy, or executed but validation didn't
+   confirm recovery — nothing to approve, inspect `GET .../remediations` for why).
+
+5. **If paused on `AWAITING_APPROVAL`, approve or reject it**:
+
+   ```bash
+   curl http://localhost:8000/api/v1/incidents/{incident_id}/remediations
+   # find the remediation_id with status AWAITING_APPROVAL
+
+   curl -X POST http://localhost:8000/api/v1/incidents/{incident_id}/remediations/{remediation_id}/approve \
+     -H "Content-Type: application/json" -d '{"approved_by": "you@example.com"}'
+   # resumes the paused LangGraph workflow, executes exactly once, validates, and (if recovery is
+   # confirmed) transitions the incident to RESOLVED
+   ```
+
+   See [docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-running-the-demos) for both the Level 1
+   (auto-executed) and Level 2 (approval-gated) walkthroughs in full, including the rejection path.
+
+6. **Disable error mode and observe recovery**:
 
    ```bash
    curl -X POST http://localhost:8001/debug/error-mode/false
@@ -197,13 +233,26 @@ uv run pytest -v --cov=src
 
 ## Remediation Safety Model
 
-FaultWarden enforces a strict 3-tier safety architecture:
+FaultWarden enforces a strict, deterministic safety architecture: the LLM only ever *proposes* —
+normal code decides and executes. A closed two-action registry (`RESET_DEMO_FAILURE`,
+`RESTART_REGISTERED_SERVICE`) is all that can ever run; everything else (shell, Docker, SQL,
+arbitrary HTTP, dynamic code) is out of scope by construction, not by a denylist.
 
-* **Level 0 — Read Only (Autonomous)**: Inspect metrics, logs, traces, container stats.
-* **Level 1 — Safe Automatic Remediation (Autonomous within bounds)**: Restart crashing workers, rerun idempotent tasks, clear caches, scale replicas.
-* **Level 2 — Human Approval Required (Manual Gate)**: Rollback deployments, alter configs, restart databases, mutate persistent data.
+* **Level 0 — Read Only (Autonomous)**: metrics/logs/traces inspection — part of investigation, not remediation.
+* **Level 1 — Safe Automatic Remediation**: may auto-execute, bounded by config
+  (`auto_execute_max_safety_level`, remediation attempt/auto-execution limits).
+* **Level 2 — Human Approval Required**: durably paused via a real LangGraph `interrupt()`
+  (survives a process restart), resumed through the approval API.
+* **Level 3 — Forbidden**: enforced by the closed action registry, not a runtime check.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full architectural specifications.
+Every remediation is independently validated after execution — an incident is only marked
+`RESOLVED` once a deterministic re-check confirms actual recovery, never on the strength of "the
+executor call returned 200" alone. Full audit trail: every proposal, policy decision (including
+rejections), approval, and execution result is a queryable database row.
+
+See [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-remediation-engine-v03) for the complete
+architecture (trust boundary, policy matrix, approval API, executors, validation semantics) and
+[§8](docs/ARCHITECTURE.md#8-running-the-demos) for runnable Level 1/Level 2 walkthroughs.
 
 ---
 
