@@ -310,10 +310,10 @@ auditable via `RejectedAction.reason`, never silently dropped.
 ### 6.5 Executors — bounded capabilities, not command runners
 
 ```python
-DemoServiceExecutor.reset_failure_mode(action)       # POST /debug/error-mode/false on demo-service
-RegisteredServiceExecutor.restart(action)             # simulated — GET /health, honestly reported
-                                                        # as a simulation (no real process control
-                                                        # exists in v0.3's demo scope)
+DemoServiceExecutor.reset_failure_mode(action)  # POST /debug/error-mode/false on demo-service
+RegisteredServiceExecutor.restart(action)  # simulated — GET /health, honestly reported
+# as a simulation (no real process control
+# exists in v0.3's demo scope)
 ```
 
 Both target only `RemediationSettings.demo_service_url` — trusted configuration, never LLM or
