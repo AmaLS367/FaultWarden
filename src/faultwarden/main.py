@@ -20,6 +20,9 @@ from faultwarden.core.exceptions import (
     IncidentNotFoundError,
     InvalidAlertPayloadError,
     ProviderError,
+    RemediationActionNotFoundError,
+    RemediationNotAwaitingApprovalError,
+    RemediationProposalNotFoundError,
     RemediationSafetyError,
 )
 from faultwarden.core.logging import get_logger, setup_logging
@@ -175,6 +178,46 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={"error": "Safety Violation", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RemediationActionNotFoundError)
+    async def remediation_action_not_found_handler(
+        _request: Request, exc: RemediationActionNotFoundError
+    ) -> JSONResponse:
+        """Map a missing remediation action lookup to a 404 response."""
+        logger.warning("remediation_action_not_found", error=exc.message, action_id=exc.action_id)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Not Found", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RemediationProposalNotFoundError)
+    async def remediation_proposal_not_found_handler(
+        _request: Request, exc: RemediationProposalNotFoundError
+    ) -> JSONResponse:
+        """Map a missing remediation proposal lookup to a 404 response."""
+        logger.warning(
+            "remediation_proposal_not_found", error=exc.message, proposal_id=exc.proposal_id
+        )
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Not Found", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RemediationNotAwaitingApprovalError)
+    async def remediation_not_awaiting_approval_handler(
+        _request: Request, exc: RemediationNotAwaitingApprovalError
+    ) -> JSONResponse:
+        """Map an approve/reject conflict (already decided, or not paused) to a 409 response."""
+        logger.warning(
+            "remediation_not_awaiting_approval",
+            error=exc.message,
+            incident_id=exc.incident_id,
+            current_status=exc.current_status,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "Conflict", "message": exc.message, "details": exc.details},
         )
 
     @app.exception_handler(ProviderError)

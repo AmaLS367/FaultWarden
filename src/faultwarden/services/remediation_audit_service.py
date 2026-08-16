@@ -259,6 +259,13 @@ class RemediationAuditService:
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def get_result_for_action(self, action_id: UUID) -> RemediationResultModel | None:
+        """Retrieve the execution result recorded for a remediation action, if any."""
+        uuid_val = action_id if isinstance(action_id, UUID) else UUID(action_id)
+        stmt = select(RemediationResultModel).where(RemediationResultModel.action_id == uuid_val)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def list_actions_for_incident(self, incident_id: UUID) -> list[RemediationActionModel]:
         """List all remediation actions associated with an incident, ordered most recent first."""
         uuid_val = incident_id if isinstance(incident_id, UUID) else UUID(incident_id)

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
 from typing import Annotated, Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -328,3 +328,53 @@ class ApprovalContext(BaseModel):
     expected_effect: str
     supporting_evidence_ids: list[str]
     reason_approval_required: str
+
+
+# --- API Read Schemas ---
+class RemediationResultRead(BaseModel):
+    """API-facing read model for a persisted remediation execution result."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    action_id: UUID
+    status: RemediationExecutionStatus
+    started_at: datetime
+    completed_at: datetime | None
+    success: bool
+    summary: str
+    error: str | None
+    before_state: dict[str, Any] | None
+    after_state: dict[str, Any] | None
+
+
+class RemediationActionRead(BaseModel):
+    """API-facing read model for a persisted remediation action and its approval lifecycle."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    incident_id: UUID
+    proposal_id: UUID
+    decision: PolicyDecisionType
+    action_type: ActionType
+    policy_level: RemediationSafetyLevel | None
+    approval_required: bool | None
+    executor: str | None
+    validated_parameters: dict[str, Any] | None
+    reason: str | None
+    status: RemediationStatus
+    approved_by: str | None
+    approved_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    result: RemediationResultRead | None = None
+
+
+class RemediationApprovalRequest(BaseModel):
+    """Request body for approving or rejecting a paused remediation action."""
+
+    approved_by: str = Field(
+        default="operator",
+        description="Free-text approver identifier — no authentication in v0.3.",
+    )

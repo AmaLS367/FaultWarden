@@ -17,6 +17,7 @@ from faultwarden.integrations.prometheus.client import MetricsProvider, Promethe
 from faultwarden.services.alert_service import AlertService
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
+from faultwarden.services.remediation_audit_service import RemediationAuditService
 
 
 # --- Database Dependencies ---
@@ -37,6 +38,11 @@ def get_alert_service(
 ) -> AlertService:
     """Dependency for AlertService."""
     return AlertService(incident_service=incident_service)
+
+
+def get_remediation_audit_service(db: AsyncSession = Depends(get_db)) -> RemediationAuditService:
+    """Dependency for RemediationAuditService."""
+    return RemediationAuditService(session=db)
 
 
 # --- Integration Provider Dependencies ---
