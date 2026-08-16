@@ -7,8 +7,9 @@ from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from sqlalchemy import select
 
-from faultwarden.core.config import get_settings
+from faultwarden.core.config import Settings, get_settings
 from faultwarden.core.exceptions import (
     FaultWardenError,
     RemediationActionNotFoundError,
@@ -17,6 +18,7 @@ from faultwarden.core.exceptions import (
 )
 from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
+from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import get_production_graph
 from faultwarden.integrations.executors import (
@@ -30,17 +32,16 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
+from faultwarden.schemas.job import InvestigationJobStatus
 from faultwarden.schemas.remediation import (
-    AllowedAction,
     ApprovalDecision,
-    ApprovalRequiredAction,
     PolicyDecisionType,
     PolicyResult,
-    RejectedAction,
     RemediationAction,
     RemediationProposal,
     RemediationResult,
     RemediationStatus,
+    RemediationValidationResult,
 )
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.remediation_audit_service import RemediationAuditService
@@ -62,7 +63,7 @@ class InvestigationService:
 
     def __init__(
         self,
-        incident_service: IncidentService,
+        incident_service: IncidentService | None = None,
         metrics_provider: MetricsProvider | None = None,
         logs_provider: LogsProvider | None = None,
         llm_provider: LLMProvider | None = None,
@@ -70,6 +71,8 @@ class InvestigationService:
             Callable[[RemediationAction], Awaitable[RemediationResult]] | None
         ) = None,
         remediation_validator: (Callable[[RemediationAction], Awaitable[bool]] | None) = None,
+        settings: Settings | None = None,
+        session_factory: Any | None = None,
     ) -> None:
         self.incident_service = incident_service
         self.metrics_provider = metrics_provider
@@ -77,6 +80,8 @@ class InvestigationService:
         self.llm_provider = llm_provider
         self.remediation_executor = remediation_executor
         self.remediation_validator = remediation_validator
+        self.settings = settings or get_settings()
+        self.session_factory = session_factory
 
     def _build_run_config(self, thread_id: str) -> RunnableConfig:
         """Construct RunnableConfig supplying all configurable dependencies and the thread_id."""
@@ -148,6 +153,8 @@ class InvestigationService:
 
     async def _count_prior_remediations(self, incident_id: UUID) -> tuple[int, int]:
         """Count this incident's prior remediation attempts and auto-executions for limit enforcement."""
+        if self.incident_service is None:
+            return 0, 0
         audit_service = RemediationAuditService(self.incident_service.session)
         actions = await audit_service.list_actions_for_incident(incident_id)
         attempt_count = len(actions)
@@ -158,40 +165,64 @@ class InvestigationService:
         self,
         state_values: dict[str, Any],
         audit_service: RemediationAuditService,
+        incident_id: UUID,
     ) -> None:
-        """Persist primary proposal, policy decision, and execution result if available."""
-        policy_result: PolicyResult | None = state_values.get("remediation_policy_result")
-        if policy_result is None:
-            return
-
+        """Persist all candidate proposals, policy decisions, execution result, and recovery validation if available."""
         proposals: list[RemediationProposal] = state_values.get("remediation_proposals", [])
-        proposal_id_str: str | None = None
-        if isinstance(policy_result, (AllowedAction, ApprovalRequiredAction)):
-            proposal_id_str = policy_result.action.proposal_id
-        elif isinstance(policy_result, RejectedAction):
-            proposal_id_str = policy_result.proposal_id
+        all_policy_results: list[PolicyResult] = state_values.get(
+            "remediation_all_policy_results", []
+        )
+        primary_policy_result: PolicyResult | None = state_values.get("remediation_policy_result")
 
-        if proposal_id_str:
-            primary_proposal = next(
-                (p for p in proposals if str(p.id) == str(proposal_id_str)),
-                None,
-            )
-            if primary_proposal is not None:
-                proposal_uuid = UUID(str(primary_proposal.id))
-                existing_proposal = await audit_service.get_proposal(proposal_uuid)
-                if existing_proposal is None:
-                    await audit_service.create_proposal(primary_proposal)
-                    await audit_service.create_action_decision(policy_result)
+        # 1. Persist all generated proposals
+        for prop in proposals:
+            prop_uuid = UUID(prop.id) if isinstance(prop.id, str) else prop.id
+            existing_proposal = await audit_service.get_proposal(prop_uuid)
+            if existing_proposal is None:
+                await audit_service.create_proposal(prop)
 
+        # 2. Persist policy decisions for all evaluated proposals
+        if all_policy_results:
+            for pol_res in all_policy_results:
+                await audit_service.create_action_decision(pol_res)
+        elif primary_policy_result is not None:
+            await audit_service.create_action_decision(primary_policy_result)
+
+        # 3. Persist execution result if any
         rem_result = state_values.get("remediation_result")
         if rem_result is not None:
             if isinstance(rem_result, dict):
                 rem_result = RemediationResult.model_validate(rem_result)
             await audit_service.record_execution_result(rem_result)
 
+        # 4. Persist recovery validation result if any
+        val_result = state_values.get("remediation_validation_result")
+        if val_result is not None:
+            if isinstance(val_result, dict):
+                val_result = RemediationValidationResult.model_validate(val_result)
+            await audit_service.record_validation_result(val_result, incident_id)
+
+    async def investigate_incident(self, incident_id: UUID | str) -> IncidentModel:
+        """Alias for run_investigation, creating an isolated session if initialized with session_factory."""
+        if self.incident_service is not None:
+            return await self.run_investigation(incident_id)
+
+        session_factory = self.session_factory or get_session_factory()
+        async with session_factory() as session:
+            self.incident_service = IncidentService(session)
+            try:
+                return await self.run_investigation(incident_id)
+            finally:
+                self.incident_service = None
+
     # --- Synchronous / Direct Graph Run ---
     async def run_investigation(self, incident_id: UUID | str) -> IncidentModel:
         """Run the complete LangGraph investigation workflow for an incident and persist the result."""
+        if self.incident_service is None:
+            raise ValueError(
+                "InvestigationService requires an active IncidentService or session_factory."
+            )
+
         incident = await self.incident_service.get_incident(incident_id)
         incident_id_str = str(incident.id)
 
@@ -261,7 +292,7 @@ class InvestigationService:
 
             # Check if graph paused on interrupt (e.g. Level-2 approval required)
             if _is_graph_paused(final_state):
-                await self._persist_remediation(final_state, audit_service)
+                await self._persist_remediation(final_state, audit_service, incident.id)
 
                 update_data = IncidentUpdate(
                     status=IncidentStatus.AWAITING_APPROVAL,
@@ -291,7 +322,7 @@ class InvestigationService:
                 return updated_incident
 
             # Completed normally
-            await self._persist_remediation(final_state, audit_service)
+            await self._persist_remediation(final_state, audit_service, incident.id)
 
             next_status, resolution_text = self._decide_terminal_status(
                 final_state,
@@ -371,6 +402,9 @@ class InvestigationService:
         approved_by: str,
     ) -> IncidentModel:
         """Resume a paused Level-2 remediation approval and run the graph to completion or the next pause."""
+        if self.incident_service is None:
+            raise ValueError("InvestigationService requires an active IncidentService.")
+
         incident = await self.incident_service.get_incident(incident_id)
         incident_id_str = str(incident.id)
 
@@ -442,7 +476,7 @@ class InvestigationService:
             iteration_val = final_state.get("iteration_count", 1)
 
             if _is_graph_paused(final_state):
-                await self._persist_remediation(final_state, audit_service)
+                await self._persist_remediation(final_state, audit_service, incident.id)
 
                 update_data = IncidentUpdate(
                     status=IncidentStatus.AWAITING_APPROVAL,
@@ -468,7 +502,7 @@ class InvestigationService:
                 return updated_incident
 
             # Completed normally
-            await self._persist_remediation(final_state, audit_service)
+            await self._persist_remediation(final_state, audit_service, incident.id)
 
             next_status, resolution_text = self._decide_terminal_status(
                 final_state,
@@ -522,15 +556,58 @@ class InvestigationService:
 async def run_background_investigation(incident_id: UUID | str) -> None:
     """Run an investigation inside an isolated DB session, intended for FastAPI BackgroundTasks."""
     logger.info("launching_background_investigation", incident_id=str(incident_id))
+    uuid_val = incident_id if isinstance(incident_id, UUID) else UUID(incident_id)
     session_factory = get_session_factory()
     try:
         async with session_factory() as session:
+            # Check if there is an associated pending job
+            job_stmt = (
+                select(InvestigationJobModel)
+                .where(
+                    InvestigationJobModel.incident_id == uuid_val,
+                    InvestigationJobModel.status.in_(
+                        [InvestigationJobStatus.PENDING, InvestigationJobStatus.RUNNING]
+                    ),
+                )
+                .limit(1)
+            )
+            res = await session.execute(job_stmt)
+            job = res.scalar_one_or_none()
+            if job is not None:
+                job.status = InvestigationJobStatus.RUNNING
+                job.claimed_at = datetime.now(UTC)
+                await session.flush()
+
             incident_service = IncidentService(session)
             investigation_service = InvestigationService(incident_service)
-            await investigation_service.run_investigation(incident_id)
+            await investigation_service.run_investigation(uuid_val)
+
+            if job is not None:
+                job.status = InvestigationJobStatus.COMPLETED
+                job.completed_at = datetime.now(UTC)
+                await session.commit()
     except Exception as exc:
         logger.error(
             "background_investigation_error",
             incident_id=str(incident_id),
             error=str(exc),
         )
+        try:
+            async with session_factory() as session:
+                job_stmt = (
+                    select(InvestigationJobModel)
+                    .where(
+                        InvestigationJobModel.incident_id == uuid_val,
+                        InvestigationJobModel.status == InvestigationJobStatus.RUNNING,
+                    )
+                    .limit(1)
+                )
+                res = await session.execute(job_stmt)
+                job = res.scalar_one_or_none()
+                if job is not None:
+                    job.status = InvestigationJobStatus.FAILED
+                    job.last_error = str(exc)
+                    job.completed_at = datetime.now(UTC)
+                    await session.commit()
+        except Exception:
+            pass

@@ -144,3 +144,49 @@ class InvestigationWorkflowError(FaultWardenError):
         super().__init__(
             f"Investigation graph error at stage '{stage}': {message}", {"stage": stage}
         )
+
+
+class InvalidStateTransitionError(FaultWardenError):
+    """Raised when an invalid entity lifecycle state transition is attempted."""
+
+    def __init__(self, entity: str, current_status: str, target_status: str) -> None:
+        super().__init__(
+            f"Invalid {entity} state transition from '{current_status}' to '{target_status}'.",
+            {
+                "entity": entity,
+                "current_status": current_status,
+                "target_status": target_status,
+            },
+        )
+        self.entity = entity
+        self.current_status = current_status
+        self.target_status = target_status
+
+
+class RemediationExecutionClaimError(FaultWardenError):
+    """Raised when an action cannot be claimed for execution (e.g. already executing or completed)."""
+
+    def __init__(self, action_id: str, reason: str) -> None:
+        super().__init__(
+            f"Cannot claim remediation action '{action_id}' for execution: {reason}",
+            {"action_id": action_id, "reason": reason},
+        )
+        self.action_id = action_id
+        self.reason = reason
+
+
+class ActiveJobConflictError(FaultWardenError):
+    """Raised when an operation conflicts with an already pending or running investigation job."""
+
+    def __init__(self, incident_id: str, job_id: str, job_status: str) -> None:
+        super().__init__(
+            f"An active investigation job '{job_id}' (status: '{job_status}') already exists for incident '{incident_id}'.",
+            {
+                "incident_id": incident_id,
+                "job_id": job_id,
+                "job_status": job_status,
+            },
+        )
+        self.incident_id = incident_id
+        self.job_id = job_id
+        self.job_status = job_status

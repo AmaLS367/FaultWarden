@@ -128,6 +128,36 @@ class RemediationSettings(BaseModel):
     validation_window_seconds: float = Field(
         default=30.0, description="Telemetry lookback window for validation checks"
     )
+    min_root_cause_confidence: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence score required for an incident to be eligible for remediation",
+    )
+    recovery_error_rate_threshold: float = Field(
+        default=0.01,
+        ge=0.0,
+        description="Maximum 5xx error rate threshold (req/s) allowed for successful recovery validation",
+    )
+    job_lease_seconds: int = Field(
+        default=120,
+        ge=10,
+        description="Lease timeout duration in seconds for running investigation jobs",
+    )
+    job_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum retry attempts for an investigation job before marking it FAILED",
+    )
+    worker_enabled: bool = Field(
+        default=True,
+        description="Whether to run the embedded durable job worker in the FastAPI process lifespan",
+    )
+    worker_poll_interval_seconds: float = Field(
+        default=1.0,
+        ge=0.1,
+        description="Polling interval in seconds for the durable job worker",
+    )
     demo_service_url: str = Field(
         default="http://demo-service:8001",
         description="Trusted, config-only target for demo-service executor calls",
@@ -206,6 +236,12 @@ class Settings(BaseSettings):
     remediation_execution_timeout_seconds: float = 15.0
     remediation_validation_delay_seconds: float = 5.0
     remediation_validation_window_seconds: float = 30.0
+    remediation_min_root_cause_confidence: float = 0.75
+    remediation_recovery_error_rate_threshold: float = 0.01
+    remediation_job_lease_seconds: int = 120
+    remediation_job_max_attempts: int = 3
+    remediation_worker_enabled: bool = True
+    remediation_worker_poll_interval_seconds: float = 1.0
     remediation_demo_service_url: str = "http://demo-service:8001"
 
     # --- Telemetry ---
@@ -305,6 +341,12 @@ class Settings(BaseSettings):
             execution_timeout_seconds=self.remediation_execution_timeout_seconds,
             validation_delay_seconds=self.remediation_validation_delay_seconds,
             validation_window_seconds=self.remediation_validation_window_seconds,
+            min_root_cause_confidence=self.remediation_min_root_cause_confidence,
+            recovery_error_rate_threshold=self.remediation_recovery_error_rate_threshold,
+            job_lease_seconds=self.remediation_job_lease_seconds,
+            job_max_attempts=self.remediation_job_max_attempts,
+            worker_enabled=self.remediation_worker_enabled,
+            worker_poll_interval_seconds=self.remediation_worker_poll_interval_seconds,
             demo_service_url=self.remediation_demo_service_url,
         )
 

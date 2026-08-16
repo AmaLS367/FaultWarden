@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for remediation lifecycle and audit trail."""
+"""SQLAlchemy ORM models for remediation lifecycle, validation, and audit trail."""
 
 from datetime import datetime
 from typing import Any
@@ -14,6 +14,7 @@ from faultwarden.schemas.remediation import (
     PolicyDecisionType,
     RemediationExecutionStatus,
     RemediationStatus,
+    RemediationValidationStatus,
 )
 
 
@@ -62,7 +63,7 @@ class RemediationProposalModel(Base, TimestampMixin):
 
 # --- Remediation Action Model ---
 class RemediationActionModel(Base, TimestampMixin):
-    """Database model for post-policy remediation actions and approval lifecycle."""
+    """Database model for post-policy remediation actions, execution claims, and approval lifecycle."""
 
     __tablename__ = "remediation_actions"
 
@@ -99,6 +100,14 @@ class RemediationActionModel(Base, TimestampMixin):
     executor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     validated_parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Durable Idempotency & Execution Claim ---
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True, index=True
+    )
+    claim_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # --- Approval Lifecycle & Status ---
     status: Mapped[RemediationStatus] = mapped_column(
@@ -152,4 +161,51 @@ class RemediationResultModel(Base, TimestampMixin):
         return (
             f"<RemediationResultModel(id={self.id}, action_id={self.action_id}, "
             f"status='{self.status}', success={self.success})>"
+        )
+
+
+# --- Remediation Validation Model ---
+class RemediationValidationModel(Base, TimestampMixin):
+    """Database model for multi-signal deterministic recovery validation outcome."""
+
+    __tablename__ = "remediation_validations"
+
+    # --- Core Identifiers ---
+    id: Mapped[UUID] = mapped_column(
+        GUID(),
+        primary_key=True,
+        default=uuid4,
+    )
+    action_id: Mapped[UUID] = mapped_column(
+        GUID(),
+        ForeignKey("remediation_actions.id"),
+        nullable=False,
+        index=True,
+    )
+    incident_id: Mapped[UUID] = mapped_column(
+        GUID(),
+        ForeignKey("incidents.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # --- Validation Results ---
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[RemediationValidationStatus] = mapped_column(
+        SQLEnum(
+            RemediationValidationStatus,
+            name="remediation_validation_status",
+            native_enum=False,
+        ),
+        nullable=False,
+    )
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<RemediationValidationModel(id={self.id}, action_id={self.action_id}, "
+            f"passed={self.passed}, status='{self.status}')>"
         )

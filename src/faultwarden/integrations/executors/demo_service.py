@@ -42,6 +42,7 @@ class DemoServiceExecutor:
         self,
         method: Literal["GET", "POST"],
         path: str,
+        headers: dict[str, str] | None = None,
     ) -> tuple[httpx.Response | None, Exception | None]:
         """Perform HTTP request with bounded retries on transient connection and timeout failures."""
         last_exc: Exception | None = None
@@ -49,9 +50,9 @@ class DemoServiceExecutor:
             try:
                 async with await self._get_client() as client:
                     if method == "GET":
-                        resp = await client.get(path)
+                        resp = await client.get(path, headers=headers)
                     else:
-                        resp = await client.post(path)
+                        resp = await client.post(path, headers=headers)
                     return resp, None
             except _TRANSIENT_EXCEPTIONS as exc:
                 last_exc = exc
@@ -165,8 +166,11 @@ class DemoServiceExecutor:
                 after_state=None,
             )
 
-        # 3. Disable error mode (POST /debug/error-mode/false)
-        post_resp, post_exc = await self._request_with_retry("POST", "/debug/error-mode/false")
+        # 3. Disable error mode (POST /debug/error-mode/false with X-Idempotency-Key)
+        headers = {"X-Idempotency-Key": action.idempotency_key} if action.idempotency_key else None
+        post_resp, post_exc = await self._request_with_retry(
+            "POST", "/debug/error-mode/false", headers=headers
+        )
         if post_resp is None:
             return RemediationResult(
                 action_id=action.id,

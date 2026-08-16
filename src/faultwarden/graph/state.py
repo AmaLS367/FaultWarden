@@ -14,13 +14,22 @@ from faultwarden.schemas.evidence import (
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
 from faultwarden.schemas.remediation import (
     PolicyResult,
+    RemediationEligibilityResult,
     RemediationProposal,
     RemediationResult,
+    RemediationValidationResult,
 )
 
 
 def _replace_hypotheses(_old: list[Hypothesis], new: list[Hypothesis]) -> list[Hypothesis]:
     """Each re-hypothesize pass regenerates a fresh candidate set from cumulative evidence, so replace rather than accumulate."""
+    return new
+
+
+def _replace_proposals(
+    _old: list[RemediationProposal], new: list[RemediationProposal]
+) -> list[RemediationProposal]:
+    """Replace proposals on re-proposal to prevent duplicate accumulation."""
     return new
 
 
@@ -45,15 +54,19 @@ class IncidentInvestigationState(TypedDict, total=False):
     selected_hypothesis: Hypothesis | None
     root_cause: RootCauseAnalysis | None
 
-    # --- Remediation Proposals (Read-Only) ---
-    remediation_proposals: Annotated[list[RemediationProposal], operator.add]
+    # --- Remediation Proposals & Eligibility ---
+    remediation_proposals: Annotated[list[RemediationProposal], _replace_proposals]
+    remediation_eligibility: RemediationEligibilityResult | None
 
-    # --- Remediation Policy, Approval & Execution ---
+    # --- Remediation Policy, Selection & Approval ---
     remediation_policy_result: PolicyResult | None
+    remediation_all_policy_results: list[PolicyResult]
+    remediation_selection_reason: str | None
     remediation_approval_decision: (
         str | None
     )  # ApprovalDecision value, set only if the approval node ran
     remediation_result: RemediationResult | None
+    remediation_validation_result: RemediationValidationResult | None
     remediation_validation_passed: bool | None
 
     # --- Remediation Limits (populated by the service layer from prior-attempt history,

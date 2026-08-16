@@ -12,7 +12,11 @@ from faultwarden.graph.nodes._context import (
     get_remediation_validator_from_config,
 )
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.schemas.remediation import AllowedAction, ApprovalRequiredAction
+from faultwarden.schemas.remediation import (
+    AllowedAction,
+    ApprovalRequiredAction,
+    RemediationValidationResult,
+)
 
 logger = get_logger("faultwarden.graph.nodes.remediation_execution")
 
@@ -97,8 +101,18 @@ async def validate_remediation_node(
         await asyncio.sleep(delay)
 
     validator = get_remediation_validator_from_config(config)
+    val_result: RemediationValidationResult | None = None
+    recovered: bool = False
+
     try:
-        recovered = await validator(action)
+        raw_val = await validator(action)
+        if isinstance(raw_val, RemediationValidationResult):
+            val_result = raw_val
+            recovered = raw_val.passed
+        elif isinstance(raw_val, bool):
+            recovered = raw_val
+        else:
+            recovered = bool(raw_val)
     except Exception as exc:
         logger.warning(
             "remediation_validation_check_errored",
@@ -120,4 +134,7 @@ async def validate_remediation_node(
         action_id=action.id,
     )
 
-    return {"remediation_validation_passed": recovered}
+    return {
+        "remediation_validation_passed": recovered,
+        "remediation_validation_result": val_result,
+    }

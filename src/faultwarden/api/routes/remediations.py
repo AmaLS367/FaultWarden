@@ -25,6 +25,7 @@ from faultwarden.schemas.remediation import (
     RemediationApprovalRequest,
     RemediationResultRead,
     RemediationStatus,
+    RemediationValidationRead,
 )
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
@@ -37,12 +38,17 @@ router = APIRouter(prefix="/incidents", tags=["Remediations"])
 async def _build_action_read(
     action: RemediationActionModel, audit_service: RemediationAuditService
 ) -> RemediationActionRead:
-    """Attach an action's execution result (if any) and build the API read model."""
+    """Attach an action's execution result and recovery validation (if any) and build the API read model."""
     action_read = RemediationActionRead.model_validate(action)
     result = await audit_service.get_result_for_action(action.id)
     if result is not None:
         action_read = action_read.model_copy(
             update={"result": RemediationResultRead.model_validate(result)}
+        )
+    validation = await audit_service.get_validation_for_action(action.id)
+    if validation is not None:
+        action_read = action_read.model_copy(
+            update={"validation": RemediationValidationRead.model_validate(validation)}
         )
     return action_read
 

@@ -1,4 +1,4 @@
-"""Deterministic remediation policy evaluation node."""
+"""Deterministic remediation policy evaluation node with eligibility gate and multi-candidate ranking."""
 
 from typing import Any
 
@@ -6,9 +6,17 @@ from langchain_core.runnables import RunnableConfig
 
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
-from faultwarden.core.policy import evaluate_policy
+from faultwarden.core.policy import (
+    check_remediation_eligibility,
+    evaluate_and_rank_proposals,
+)
 from faultwarden.graph.state import IncidentInvestigationState
-from faultwarden.schemas.remediation import ActionType, AllowedAction, PolicyResult, RejectedAction
+from faultwarden.schemas.remediation import (
+    ActionType,
+    AllowedAction,
+    PolicyResult,
+    RejectedAction,
+)
 
 logger = get_logger("faultwarden.graph.nodes.remediation_policy")
 
@@ -64,9 +72,15 @@ async def evaluate_remediation_policy_node(
     state: IncidentInvestigationState,
     config: RunnableConfig | None = None,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """Select the primary remediation proposal and evaluate it against deterministic policy. Pure — no I/O, no DB."""
+    """Check eligibility, evaluate all candidate proposals against policy, and select safest suitable action."""
     incident_id = state.get("incident_id", "unknown")
     proposals = state.get("remediation_proposals", [])
+    root_cause = state.get("root_cause")
+    selected_hypothesis = state.get("selected_hypothesis")
+    evidence_list = state.get("evidence", [])
+    iteration_count = state.get("iteration_count", 1)
+
+    settings = get_settings()
 
     logger.info(
         "evaluate_remediation_policy_start",
@@ -74,60 +88,73 @@ async def evaluate_remediation_policy_node(
         proposals_count=len(proposals),
     )
 
+    # 1. Deterministic Root-Cause Eligibility Gate (Issue 1)
+    eligibility = check_remediation_eligibility(
+        root_cause=root_cause,
+        selected_hypothesis=selected_hypothesis,
+        evidence=evidence_list,
+        iteration_count=iteration_count,
+        max_iterations=settings.investigation.max_iterations,
+        min_confidence=settings.remediation.min_root_cause_confidence,
+    )
+
+    if not eligibility.eligible:
+        logger.info(
+            "remediation_ineligible",
+            incident_id=incident_id,
+            reason=eligibility.reason.value,
+            details=eligibility.details,
+        )
+        return {
+            "remediation_eligibility": eligibility,
+            "remediation_policy_result": None,
+            "remediation_all_policy_results": [],
+            "remediation_selection_reason": eligibility.details,
+        }
+
     if not proposals:
         logger.info("remediation_policy_no_proposals", incident_id=incident_id)
-        return {"remediation_policy_result": None}
+        return {
+            "remediation_eligibility": eligibility,
+            "remediation_policy_result": None,
+            "remediation_all_policy_results": [],
+            "remediation_selection_reason": "No proposals generated.",
+        }
 
-    # Primary proposal selection: select the proposal with the highest proposed_risk
-    # (ties broken by list order).
-    # Rationale: this reflects real triage practice (address the most significant
-    # concern first) and avoids the unscoped complexity of orchestrating simultaneous
-    # multi-action approval/execution, which is explicitly out of scope for v0.3.
-    # The remaining proposals stay in state["remediation_proposals"] as recommendations only.
-    primary_proposal = max(
-        proposals,
-        key=lambda p: (
-            int(p.proposed_risk.value)
-            if hasattr(p.proposed_risk, "value")
-            else int(p.proposed_risk)
-        ),
+    # 2. Evaluate all proposals and rank using trusted deterministic rules (Issue 2)
+    selected_policy_result, all_policy_results, selection_reason = evaluate_and_rank_proposals(
+        proposals=proposals,
+        root_cause=root_cause,
+        classification=state.get("classification"),
+        settings=settings.remediation,
     )
 
-    settings = get_settings()
-    policy_result = evaluate_policy(primary_proposal, settings=settings.remediation)
+    if selected_policy_result is not None and not isinstance(
+        selected_policy_result, RejectedAction
+    ):
+        # 3. Enforce attempt and auto-execution limits
+        selected_policy_result = _enforce_remediation_limits(
+            selected_policy_result,
+            prior_attempt_count=state.get("remediation_prior_attempt_count", 0),
+            prior_auto_execution_count=state.get("remediation_prior_auto_execution_count", 0),
+            max_attempts=settings.remediation.max_remediation_attempts_per_incident,
+            max_auto_executions=settings.remediation.max_auto_remediations_per_incident,
+        )
 
-    policy_result = _enforce_remediation_limits(
-        policy_result,
-        prior_attempt_count=state.get("remediation_prior_attempt_count", 0),
-        prior_auto_execution_count=state.get("remediation_prior_auto_execution_count", 0),
-        max_attempts=settings.remediation.max_remediation_attempts_per_incident,
-        max_auto_executions=settings.remediation.max_auto_remediations_per_incident,
-    )
+    decision_value = "NONE"
+    if selected_policy_result is not None:
+        decision_value = selected_policy_result.decision.value
 
-    decision_value = (
-        policy_result.decision.value
-        if hasattr(policy_result.decision, "value")
-        else str(policy_result.decision)
-    )
     logger.info(
         "remediation_policy_evaluated",
         incident_id=incident_id,
-        primary_proposal_id=primary_proposal.id,
         decision=decision_value,
+        selection_reason=selection_reason,
     )
-    if isinstance(policy_result, RejectedAction):
-        logger.info(
-            "remediation_rejected_by_policy",
-            incident_id=incident_id,
-            proposal_id=primary_proposal.id,
-            reason=policy_result.reason,
-        )
-    elif isinstance(policy_result, AllowedAction):
-        logger.info(
-            "remediation_auto_approved",
-            incident_id=incident_id,
-            action_id=policy_result.action.id,
-            action_type=policy_result.action.action_type,
-        )
 
-    return {"remediation_policy_result": policy_result}
+    return {
+        "remediation_eligibility": eligibility,
+        "remediation_policy_result": selected_policy_result,
+        "remediation_all_policy_results": all_policy_results,
+        "remediation_selection_reason": selection_reason,
+    }

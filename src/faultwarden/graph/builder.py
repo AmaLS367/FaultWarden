@@ -61,7 +61,11 @@ def should_continue_investigation(
 def route_remediation_policy_result(
     state: IncidentInvestigationState,
 ) -> Literal["execute_remediation", "await_remediation_approval", "finalize_investigation"]:
-    """Route based on the deterministic policy evaluation outcome."""
+    """Route based on the deterministic policy evaluation and eligibility gate outcome."""
+    eligibility = state.get("remediation_eligibility")
+    if eligibility is not None and not eligibility.eligible:
+        return "finalize_investigation"
+
     policy_res = state.get("remediation_policy_result")
     if isinstance(policy_res, AllowedAction):
         return "execute_remediation"

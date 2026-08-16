@@ -4,6 +4,7 @@ from fastapi import BackgroundTasks
 
 from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
+from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.schemas.alert import AlertIngestResponse, AlertmanagerPayload
 from faultwarden.schemas.incident import (
     IncidentCreate,
@@ -11,6 +12,7 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     IncidentUpdate,
 )
+from faultwarden.schemas.job import InvestigationJobStatus
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import run_background_investigation
 
@@ -152,15 +154,18 @@ class AlertService:
             response_status = "created"
 
             if auto_investigate:
+                # Issue 5: Create a durable investigation job atomically in the same transaction
+                job = InvestigationJobModel(
+                    incident_id=incident.id,
+                    status=InvestigationJobStatus.PENDING,
+                    attempt_count=0,
+                    max_attempts=3,
+                )
+                self.incident_service.session.add(job)
+
                 # Commit explicitly before scheduling the background task. FastAPI's
                 # yield-dependency cleanup (which commits this session) is not guaranteed to
-                # run before BackgroundTasks execute — Starlette invokes a response's
-                # background tasks from within the same call that sends the response, which
-                # can happen before the request's dependency exit stack unwinds. Without this
-                # explicit commit, run_background_investigation (on its own DB connection) can
-                # see the incident row as not-yet-committed and fail with "not found" — this
-                # was observed for real running the Docker stack end-to-end, not caught by the
-                # unit tests since they share a single in-memory SQLite connection.
+                # run before BackgroundTasks execute.
                 await self.incident_service.session.commit()
                 background_tasks.add_task(run_background_investigation, incident.id)
 

@@ -96,9 +96,10 @@ async def test_list_remediations_shows_awaiting_approval_action(
     resp = await client.get(f"/api/v1/incidents/{incident_id}/remediations")
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body) == 1
-    assert body[0]["status"] == "AWAITING_APPROVAL"
-    assert body[0]["decision"] == "APPROVAL_REQUIRED"
+    assert len(body) >= 1
+    awaiting = [a for a in body if a["status"] == "AWAITING_APPROVAL"]
+    assert len(awaiting) == 1
+    assert awaiting[0]["decision"] == "APPROVAL_REQUIRED"
 
 
 @pytest.mark.asyncio

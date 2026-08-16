@@ -9,6 +9,7 @@ from typing import Any
 from urllib import request as urllib_request
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
@@ -68,8 +69,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# --- State for Deterministic Failure Simulation ---
+# --- State for Deterministic Failure Simulation & Idempotency ---
 _ERROR_MODE_ENABLED: bool = False
+_PROCESSED_IDEMPOTENCY_KEYS: dict[str, dict[str, Any]] = {}
 
 # --- Prometheus Metrics ---
 HTTP_REQUESTS_TOTAL = Counter(
@@ -158,22 +160,39 @@ async def root() -> dict[str, Any]:
     }
 
 
-@app.post("/debug/error-mode/{enabled}", status_code=status.HTTP_200_OK)
-async def set_error_mode(enabled: bool) -> dict[str, Any]:
-    """Toggle deterministic error injection."""
+@app.post("/debug/error-mode/{enabled}", status_code=status.HTTP_200_OK, response_model=None)
+async def set_error_mode(enabled: bool, request: Request) -> dict[str, Any] | Response:
+    """Toggle deterministic error injection with optional X-Idempotency-Key deduplication."""
     global _ERROR_MODE_ENABLED
+    idempotency_key = request.headers.get("x-idempotency-key")
+
+    if idempotency_key and idempotency_key in _PROCESSED_IDEMPOTENCY_KEYS:
+        logger.info(
+            "Idempotent request received with key: %s, returning cached response", idempotency_key
+        )
+        return JSONResponse(
+            content=_PROCESSED_IDEMPOTENCY_KEYS[idempotency_key],
+            headers={"X-Cache": "HIT"},
+        )
+
     _ERROR_MODE_ENABLED = enabled
     state_str = (
         "ENABLED (database connection pool exhaustion simulated)"
         if enabled
         else "DISABLED (healthy)"
     )
-    logger.info("Fault injection mode updated: %s", state_str)
-    return {
+    logger.info("Fault injection mode updated: %s (idempotency_key=%s)", state_str, idempotency_key)
+
+    response_payload: dict[str, Any] = {
         "status": "updated",
         "error_mode": _ERROR_MODE_ENABLED,
         "message": f"Error simulation set to {enabled}",
     }
+    if idempotency_key:
+        response_payload["idempotency_key"] = idempotency_key
+        _PROCESSED_IDEMPOTENCY_KEYS[idempotency_key] = response_payload
+
+    return response_payload
 
 
 @app.get("/debug/error-mode", status_code=status.HTTP_200_OK)

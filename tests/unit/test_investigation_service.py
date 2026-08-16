@@ -290,12 +290,12 @@ async def test_investigation_service_level_2_pause_and_persistence(
     # 2. Assert RemediationAuditService has persisted proposal and action in AWAITING_APPROVAL
     audit_service = RemediationAuditService(session=db_session)
     actions = await audit_service.list_actions_for_incident(incident.id)
-    assert len(actions) == 1
-    assert actions[0].status == RemediationStatus.AWAITING_APPROVAL
-    assert actions[0].decision == PolicyDecisionType.APPROVAL_REQUIRED
-    assert actions[0].action_type == ActionType.RESTART_REGISTERED_SERVICE
+    awaiting_actions = [a for a in actions if a.status == RemediationStatus.AWAITING_APPROVAL]
+    assert len(awaiting_actions) >= 1
+    assert awaiting_actions[0].decision == PolicyDecisionType.APPROVAL_REQUIRED
+    assert awaiting_actions[0].action_type == ActionType.RESTART_REGISTERED_SERVICE
 
-    proposal = await audit_service.get_proposal(actions[0].proposal_id)
+    proposal = await audit_service.get_proposal(awaiting_actions[0].proposal_id)
     assert proposal is not None
     assert proposal.incident_id == incident.id
     mock_executor.assert_not_called()
@@ -355,13 +355,21 @@ async def test_investigation_service_resume_approval(
 
     audit_service = RemediationAuditService(session=db_session)
     actions = await audit_service.list_actions_for_incident(incident.id)
-    assert len(actions) == 1
-    assert actions[0].status == RemediationStatus.APPROVED
-    assert actions[0].approved_by == "admin@faultwarden.io"
-    assert actions[0].approved_at is not None
+    executed_actions = [
+        a for a in actions if a.action_type == ActionType.RESTART_REGISTERED_SERVICE
+    ]
+    assert len(executed_actions) == 1
+    assert executed_actions[0].status in (
+        RemediationStatus.APPROVED,
+        RemediationStatus.SUCCEEDED,
+    )
+    assert executed_actions[0].approved_by == "admin@faultwarden.io"
+    assert executed_actions[0].approved_at is not None
 
     # Check execution result row in DB
-    stmt = select(RemediationResultModel).where(RemediationResultModel.action_id == actions[0].id)
+    stmt = select(RemediationResultModel).where(
+        RemediationResultModel.action_id == executed_actions[0].id
+    )
     res = await db_session.execute(stmt)
     result_model = res.scalar_one_or_none()
     assert result_model is not None

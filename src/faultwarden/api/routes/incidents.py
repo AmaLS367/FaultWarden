@@ -1,12 +1,14 @@
-"""Incident query and management API routes."""
-
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import TypeAdapter
+from sqlalchemy import select
 
 from faultwarden.api.dependencies import get_incident_service, get_investigation_service
+from faultwarden.core.exceptions import ActiveJobConflictError
 from faultwarden.db.models.incident import IncidentModel
+from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
 from faultwarden.schemas.hypothesis import Hypothesis, HypothesisStatus, RootCauseAnalysis
@@ -18,6 +20,7 @@ from faultwarden.schemas.incident import (
     IncidentStatus,
     InvestigationDetail,
 )
+from faultwarden.schemas.job import InvestigationJobStatus
 from faultwarden.schemas.remediation import RemediationProposal
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
@@ -164,7 +167,28 @@ async def create_incident(
 async def investigate_incident(
     incident_id: UUID,
     investigation_service: InvestigationService = Depends(get_investigation_service),
+    incident_service: IncidentService = Depends(get_incident_service),
 ) -> InvestigationDetail:
-    """Execute investigation workflow on an incident."""
+    """Execute investigation workflow on an incident, checking for active job conflicts."""
+    # Check if there is an active job running for this incident under an unexpired lease
+    now = datetime.now(UTC)
+    stmt = (
+        select(InvestigationJobModel)
+        .where(
+            InvestigationJobModel.incident_id == incident_id,
+            InvestigationJobModel.status == InvestigationJobStatus.RUNNING,
+            InvestigationJobModel.lease_expires_at > now,
+        )
+        .limit(1)
+    )
+    res = await incident_service.session.execute(stmt)
+    active_job = res.scalar_one_or_none()
+    if active_job is not None:
+        raise ActiveJobConflictError(
+            incident_id=str(incident_id),
+            job_id=str(active_job.id),
+            job_status=active_job.status.value,
+        )
+
     updated_incident = await investigation_service.run_investigation(incident_id)
     return _build_investigation_detail(updated_incident)

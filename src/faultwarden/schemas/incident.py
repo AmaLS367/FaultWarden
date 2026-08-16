@@ -10,7 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
-from faultwarden.schemas.remediation import RemediationProposal
+from faultwarden.schemas.remediation import (
+    RemediationEligibilityResult,
+    RemediationProposal,
+)
 
 
 # --- Enums ---
@@ -132,6 +135,7 @@ class InvestigationDetail(BaseModel):
     selected_hypothesis: Hypothesis | None = None
     root_cause: RootCauseAnalysis | None = None
     remediation_proposals: list[RemediationProposal] = Field(default_factory=list)
+    remediation_eligibility: RemediationEligibilityResult | None = None
     summary: str | None = None
     error_message: str | None = None
     started_at: datetime | None = None

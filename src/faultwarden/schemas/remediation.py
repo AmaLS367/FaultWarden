@@ -104,6 +104,29 @@ RemediationProposal = Annotated[
 ]
 
 
+# --- Remediation Eligibility Schemas ---
+class RemediationEligibilityReason(StrEnum):
+    """Deterministic reasons for remediation eligibility gate decisions."""
+
+    ELIGIBLE = "ELIGIBLE"
+    NO_ROOT_CAUSE = "NO_ROOT_CAUSE"
+    ROOT_CAUSE_UNVERIFIED = "ROOT_CAUSE_UNVERIFIED"
+    INSUFFICIENT_CONFIDENCE = "INSUFFICIENT_CONFIDENCE"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    INVESTIGATION_EXHAUSTED = "INVESTIGATION_EXHAUSTED"
+
+
+class RemediationEligibilityResult(BaseModel):
+    """Deterministic eligibility decision governing whether an incident may proceed to remediation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    eligible: bool
+    reason: RemediationEligibilityReason
+    details: str
+    evaluated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 # --- Post-Policy Validated Remediation Actions ---
 class _RemediationActionBase(BaseModel):
     """Base schema for post-policy validated, executable remediation actions."""
@@ -112,9 +135,10 @@ class _RemediationActionBase(BaseModel):
 
     id: str
     proposal_id: str
-    policy_level: RemediationSafetyLevel  # authoritative — set ONLY by the future Policy Engine
-    approval_required: bool  # authoritative — set ONLY by the future Policy Engine
+    policy_level: RemediationSafetyLevel  # authoritative — set ONLY by the Policy Engine
+    approval_required: bool  # authoritative — set ONLY by the Policy Engine
     executor: str  # capability identifier, e.g. "demo_service.reset_failure_mode"
+    idempotency_key: str | None = None  # stable execution identity for durable idempotency
 
 
 class ResetDemoFailureExecutableAction(_RemediationActionBase):
@@ -137,6 +161,42 @@ RemediationAction = Annotated[
     ResetDemoFailureExecutableAction | RestartRegisteredServiceExecutableAction,
     Field(discriminator="action_type"),
 ]
+
+
+# --- Recovery Validation Schemas ---
+class RemediationValidationStatus(StrEnum):
+    """Overall outcome status for multi-signal recovery validation."""
+
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    ERROR = "ERROR"
+
+
+class ValidationCheckResult(BaseModel):
+    """Individual deterministic recovery validation check result."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    source: str
+    passed: bool
+    observed_value: Any | None = None
+    expected_value: Any | None = None
+    error: str | None = None
+
+
+class RemediationValidationResult(BaseModel):
+    """Comprehensive multi-signal recovery validation outcome."""
+
+    model_config = ConfigDict(frozen=True)
+
+    action_id: str
+    passed: bool
+    status: RemediationValidationStatus
+    started_at: datetime
+    completed_at: datetime | None = None
+    summary: str
+    checks: list[ValidationCheckResult] = Field(default_factory=list)
 
 
 # --- Execution Results ---
@@ -348,6 +408,22 @@ class RemediationResultRead(BaseModel):
     after_state: dict[str, Any] | None
 
 
+class RemediationValidationRead(BaseModel):
+    """API-facing read model for a persisted remediation recovery validation result."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    action_id: UUID
+    incident_id: UUID
+    passed: bool
+    status: RemediationValidationStatus
+    started_at: datetime
+    completed_at: datetime | None
+    summary: str
+    checks: list[ValidationCheckResult] = Field(default_factory=list)
+
+
 class RemediationActionRead(BaseModel):
     """API-facing read model for a persisted remediation action and its approval lifecycle."""
 
@@ -364,11 +440,13 @@ class RemediationActionRead(BaseModel):
     validated_parameters: dict[str, Any] | None
     reason: str | None
     status: RemediationStatus
+    idempotency_key: str | None = None
     approved_by: str | None
     approved_at: datetime | None
     created_at: datetime
     updated_at: datetime
     result: RemediationResultRead | None = None
+    validation: RemediationValidationRead | None = None
 
 
 class RemediationApprovalRequest(BaseModel):

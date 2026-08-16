@@ -16,12 +16,15 @@ from faultwarden.api.router import api_router
 from faultwarden.api.routes.health import router as health_router
 from faultwarden.core.config import get_settings
 from faultwarden.core.exceptions import (
+    ActiveJobConflictError,
     FaultWardenError,
     IncidentNotFoundError,
     InvalidAlertPayloadError,
+    InvalidStateTransitionError,
     ProviderError,
     RemediationActionNotFoundError,
     RemediationApprovalStaleError,
+    RemediationExecutionClaimError,
     RemediationNotAwaitingApprovalError,
     RemediationProposalNotFoundError,
     RemediationSafetyError,
@@ -227,6 +230,55 @@ def create_app() -> FastAPI:
     ) -> JSONResponse:
         """Map an approval decision arriving after the timeout window to a 409 response."""
         logger.warning("remediation_approval_stale", error=exc.message, action_id=exc.action_id)
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "Conflict", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(ActiveJobConflictError)
+    async def active_job_conflict_handler(
+        _request: Request, exc: ActiveJobConflictError
+    ) -> JSONResponse:
+        """Map an active investigation job conflict to a 409 response."""
+        logger.warning(
+            "active_job_conflict",
+            error=exc.message,
+            incident_id=exc.incident_id,
+            job_id=exc.job_id,
+            job_status=exc.job_status,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "Conflict", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(InvalidStateTransitionError)
+    async def invalid_state_transition_handler(
+        _request: Request, exc: InvalidStateTransitionError
+    ) -> JSONResponse:
+        """Map an invalid entity lifecycle state transition to a 409 response."""
+        logger.warning(
+            "invalid_state_transition",
+            error=exc.message,
+            entity=exc.entity,
+            current_status=exc.current_status,
+            target_status=exc.target_status,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "Conflict", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RemediationExecutionClaimError)
+    async def remediation_execution_claim_handler(
+        _request: Request, exc: RemediationExecutionClaimError
+    ) -> JSONResponse:
+        """Map an action execution claim failure to a 409 response."""
+        logger.warning(
+            "remediation_claim_error",
+            error=exc.message,
+            action_id=exc.action_id,
+        )
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"error": "Conflict", "message": exc.message, "details": exc.details},
