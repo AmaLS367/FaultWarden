@@ -19,6 +19,7 @@ services:
       - FAULTWARDEN_PROMETHEUS_URL=http://prometheus:9090
       - FAULTWARDEN_LOKI_URL=http://loki:3100
       - FAULTWARDEN_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - FAULTWARDEN_REMEDIATION_DEMO_SERVICE_URL=http://demo-service:8001
     depends_on:
       postgres:
         condition: service_healthy

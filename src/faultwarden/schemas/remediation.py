@@ -236,3 +236,49 @@ def parse_remediation_proposal(
 
     adapter: TypeAdapter[RemediationProposal] = TypeAdapter(RemediationProposal)
     return adapter.validate_python(raw_dict)
+
+
+# --- Policy Decision Schemas ---
+class PolicyDecisionType(StrEnum):
+    """Authoritative decision outcomes emitted by the remediation policy engine."""
+
+    ALLOWED = "ALLOWED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    REJECTED = "REJECTED"
+
+
+class AllowedAction(BaseModel):
+    """Remediation action cleared for automatic execution under current policy."""
+
+    model_config = ConfigDict(frozen=True)
+
+    decision: Literal[PolicyDecisionType.ALLOWED] = PolicyDecisionType.ALLOWED
+    action: RemediationAction
+
+
+class ApprovalRequiredAction(BaseModel):
+    """Remediation action requiring human operator approval before execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    decision: Literal[PolicyDecisionType.APPROVAL_REQUIRED] = PolicyDecisionType.APPROVAL_REQUIRED
+    action: RemediationAction
+    reason: str
+
+
+class RejectedAction(BaseModel):
+    """Remediation proposal rejected by policy engine constraints or allowlists."""
+
+    model_config = ConfigDict(frozen=True)
+
+    decision: Literal[PolicyDecisionType.REJECTED] = PolicyDecisionType.REJECTED
+    proposal_id: str
+    action_type: ActionType
+    reason: str
+    rejected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+PolicyResult = Annotated[
+    AllowedAction | ApprovalRequiredAction | RejectedAction,
+    Field(discriminator="decision"),
+]

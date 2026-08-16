@@ -102,6 +102,38 @@ class InvestigationSettings(BaseModel):
     logs_limit: int = Field(default=100, description="Max log lines to fetch from Loki per query")
 
 
+class RemediationSettings(BaseModel):
+    """Deterministic policy and execution limits for the remediation engine (never LLM-controlled)."""
+
+    enabled: bool = Field(default=True, description="Master switch for the remediation pipeline")
+    auto_execute_max_safety_level: int = Field(
+        default=1,
+        ge=0,
+        le=2,
+        description="Actions at or below this RemediationSafetyLevel auto-execute; above require approval",
+    )
+    approval_timeout_seconds: int = Field(
+        default=86400, description="How long a paused approval waits before going stale"
+    )
+    max_remediation_attempts_per_incident: int = Field(
+        default=3, description="Hard cap on remediation attempts per incident"
+    )
+    max_auto_remediations_per_incident: int = Field(
+        default=1, description="Hard cap on Level-1 auto-executions per incident"
+    )
+    execution_timeout_seconds: float = Field(default=15.0, description="Executor HTTP call timeout")
+    validation_delay_seconds: float = Field(
+        default=5.0, description="Stabilization wait before post-remediation validation"
+    )
+    validation_window_seconds: float = Field(
+        default=30.0, description="Telemetry lookback window for validation checks"
+    )
+    demo_service_url: str = Field(
+        default="http://demo-service:8001",
+        description="Trusted, config-only target for demo-service executor calls",
+    )
+
+
 class TelemetrySettings(BaseModel):
     """OpenTelemetry and application monitoring settings."""
 
@@ -164,6 +196,17 @@ class Settings(BaseSettings):
     investigation_metrics_lookback_minutes: int = 15
     investigation_logs_lookback_minutes: int = 15
     investigation_logs_limit: int = 100
+
+    # --- Remediation ---
+    remediation_enabled: bool = True
+    remediation_auto_execute_max_safety_level: int = 1
+    remediation_approval_timeout_seconds: int = 86400
+    remediation_max_remediation_attempts_per_incident: int = 3
+    remediation_max_auto_remediations_per_incident: int = 1
+    remediation_execution_timeout_seconds: float = 15.0
+    remediation_validation_delay_seconds: float = 5.0
+    remediation_validation_window_seconds: float = 30.0
+    remediation_demo_service_url: str = "http://demo-service:8001"
 
     # --- Telemetry ---
     otel_service_name: str = "faultwarden"
@@ -248,6 +291,21 @@ class Settings(BaseSettings):
             metrics_lookback_minutes=self.investigation_metrics_lookback_minutes,
             logs_lookback_minutes=self.investigation_logs_lookback_minutes,
             logs_limit=self.investigation_logs_limit,
+        )
+
+    @property
+    def remediation(self) -> RemediationSettings:
+        """Return the grouped remediation engine settings."""
+        return RemediationSettings(
+            enabled=self.remediation_enabled,
+            auto_execute_max_safety_level=self.remediation_auto_execute_max_safety_level,
+            approval_timeout_seconds=self.remediation_approval_timeout_seconds,
+            max_remediation_attempts_per_incident=self.remediation_max_remediation_attempts_per_incident,
+            max_auto_remediations_per_incident=self.remediation_max_auto_remediations_per_incident,
+            execution_timeout_seconds=self.remediation_execution_timeout_seconds,
+            validation_delay_seconds=self.remediation_validation_delay_seconds,
+            validation_window_seconds=self.remediation_validation_window_seconds,
+            demo_service_url=self.remediation_demo_service_url,
         )
 
     @property
