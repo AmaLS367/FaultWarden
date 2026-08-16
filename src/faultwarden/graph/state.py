@@ -15,6 +15,11 @@ from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
 from faultwarden.schemas.remediation import RemediationProposal
 
 
+def _replace_hypotheses(_old: list[Hypothesis], new: list[Hypothesis]) -> list[Hypothesis]:
+    """Each re-hypothesize pass regenerates a fresh candidate set from cumulative evidence, so replace rather than accumulate."""
+    return new
+
+
 class IncidentInvestigationState(TypedDict, total=False):
     """Complete typed state passed across all LangGraph investigation nodes."""
 
@@ -32,7 +37,7 @@ class IncidentInvestigationState(TypedDict, total=False):
     recent_changes: Annotated[list[DeploymentEvent], operator.add]
 
     # --- Reasoning & Hypotheses ---
-    hypotheses: Annotated[list[Hypothesis], operator.add]
+    hypotheses: Annotated[list[Hypothesis], _replace_hypotheses]
     selected_hypothesis: Hypothesis | None
     root_cause: RootCauseAnalysis | None
 

@@ -1,6 +1,5 @@
 """Service layer for executing and persisting LangGraph incident investigations."""
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -109,23 +108,33 @@ class InvestigationService:
                 incident_id=incident_id_str,
                 error=str(exc),
             )
-            # Ensure incident record is not corrupted and remains accessible
+            # Write the failure record through a fresh session so it survives regardless of
+            # how the caller's own transaction resolves (it will roll back on this exception).
             try:
                 fail_summary = f"Investigation failed with error: {exc}"
-                await self.incident_service.update_incident(
-                    incident.id,
-                    IncidentUpdate(
-                        summary=fail_summary,
-                    ),
+                session_factory = get_session_factory()
+                async with session_factory() as fail_session, fail_session.begin():
+                    fail_service = IncidentService(fail_session)
+                    await fail_service.update_incident(
+                        incident.id,
+                        IncidentUpdate(
+                            status=IncidentStatus.FAILED,
+                            summary=fail_summary,
+                        ),
+                    )
+            except Exception as write_exc:
+                logger.error(
+                    "investigation_failure_record_write_failed",
+                    incident_id=incident_id_str,
+                    error=str(write_exc),
                 )
-            except Exception:
-                pass
             raise FaultWardenError(f"Investigation execution failed: {exc}") from exc
 
 
 # --- Background Investigation Worker ---
-async def _background_investigate_task(incident_id: UUID | str) -> None:
-    """Async background task that runs an investigation inside an isolated DB session."""
+async def run_background_investigation(incident_id: UUID | str) -> None:
+    """Run an investigation inside an isolated DB session, intended for FastAPI BackgroundTasks."""
+    logger.info("launching_background_investigation", incident_id=str(incident_id))
     session_factory = get_session_factory()
     try:
         async with session_factory() as session, session.begin():
@@ -138,9 +147,3 @@ async def _background_investigate_task(incident_id: UUID | str) -> None:
             incident_id=str(incident_id),
             error=str(exc),
         )
-
-
-def trigger_background_investigation(incident_id: UUID | str) -> asyncio.Task[None]:
-    """Launch an asynchronous non-blocking investigation for a newly created incident."""
-    logger.info("launching_background_investigation", incident_id=str(incident_id))
-    return asyncio.create_task(_background_investigate_task(incident_id))

@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from faultwarden.api.router import api_router
 from faultwarden.api.routes.health import router as health_router
@@ -31,6 +32,14 @@ from faultwarden.telemetry.setup import (
 )
 
 logger = get_logger("faultwarden.app")
+
+
+def _get_normalized_path(request: Request) -> str:
+    """Extract the parameterized route path or fall back to the URL path, avoiding label cardinality explosion."""
+    route: Any = request.scope.get("route")
+    if isinstance(route, APIRoute):
+        return route.path
+    return request.url.path
 
 
 @asynccontextmanager
@@ -100,14 +109,15 @@ def create_app() -> FastAPI:
 
         # Record metrics (skip metrics endpoint itself)
         if path != "/metrics":
+            normalized_path = _get_normalized_path(request)
             HTTP_REQUESTS_TOTAL.labels(
                 method=request.method,
-                endpoint=path,
+                endpoint=normalized_path,
                 status=str(status_code),
             ).inc()
             HTTP_REQUEST_DURATION_SECONDS.labels(
                 method=request.method,
-                endpoint=path,
+                endpoint=normalized_path,
             ).observe(duration)
 
         logger.info(
@@ -194,9 +204,10 @@ def create_app() -> FastAPI:
     # --- Routers ---
     # Direct top-level health & metrics endpoints
     app.include_router(health_router)
-    app.add_api_route(
-        "/metrics", prometheus_metrics_endpoint, methods=["GET"], include_in_schema=False
-    )
+    if settings.telemetry.enable_metrics:
+        app.add_api_route(
+            "/metrics", prometheus_metrics_endpoint, methods=["GET"], include_in_schema=False
+        )
 
     # - API v1 routes
     app.include_router(api_router, prefix="/api/v1")

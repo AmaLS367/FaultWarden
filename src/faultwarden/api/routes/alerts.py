@@ -1,6 +1,6 @@
 """Alert ingestion API routes."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 
 from faultwarden.api.dependencies import get_alert_service
 from faultwarden.schemas.alert import AlertIngestResponse, AlertmanagerPayload
@@ -20,10 +20,13 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 )
 async def ingest_alertmanager_alert(
     payload: AlertmanagerPayload,
+    background_tasks: BackgroundTasks,
     alert_service: AlertService = Depends(get_alert_service),
 ) -> AlertIngestResponse:
     """Ingest webhook from Alertmanager and create Incident."""
-    incident, response = await alert_service.process_alertmanager_webhook(payload)
+    incident, response = await alert_service.process_alertmanager_webhook(
+        payload, background_tasks=background_tasks
+    )
     # Only increment creation counter for new incidents, excluding idempotent updates
     if response.status == "created":
         INCIDENTS_CREATED_TOTAL.labels(

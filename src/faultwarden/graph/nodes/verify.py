@@ -95,29 +95,33 @@ async def verify_hypothesis_node(
             is_verified = False
             eval_reasoning = "Confidence below verification threshold; additional evidence needed."
 
-    best_candidate.confidence_score = evaluated_confidence
+    def _with_updated_candidate(
+        new_status: HypothesisStatus,
+    ) -> tuple[Hypothesis, list[Hypothesis]]:
+        """Functionally update the candidate (never mutate a Hypothesis living in state)."""
+        updated = best_candidate.model_copy(
+            update={"confidence_score": evaluated_confidence, "status": new_status}
+        )
+        updated_list = [updated if h.id == best_candidate.id else h for h in hypotheses]
+        return updated, updated_list
 
     # Application code owns the transition policy
-    root_cause: RootCauseAnalysis | None = None
-
-    if (
-        is_verified and evaluated_confidence >= confidence_threshold
-    ) or iteration >= max_iterations:
-        best_candidate.status = HypothesisStatus.VERIFIED
+    if is_verified and evaluated_confidence >= confidence_threshold:
+        updated_candidate, updated_hypotheses = _with_updated_candidate(HypothesisStatus.VERIFIED)
         now = datetime.now(UTC)
         classification = state.get("classification")
         category_name = classification.category.value if classification is not None else "UNKNOWN"
 
         root_cause = RootCauseAnalysis(
-            primary_hypothesis_id=best_candidate.id,
-            summary=f"Root cause verified: {best_candidate.title}. {best_candidate.description}",
+            primary_hypothesis_id=updated_candidate.id,
+            summary=f"Root cause verified: {updated_candidate.title}. {updated_candidate.description}",
             root_cause_category=category_name,
-            culprit_service=best_candidate.affected_component,
+            culprit_service=updated_candidate.affected_component,
             contributing_factors=[
-                best_candidate.reasoning_summary or eval_reasoning,
+                updated_candidate.reasoning_summary or eval_reasoning,
                 f"Evaluation score: {evaluated_confidence:.2f} (threshold: {confidence_threshold})",
             ],
-            supporting_evidence_ids=best_candidate.supporting_evidence_ids,
+            supporting_evidence_ids=updated_candidate.supporting_evidence_ids,
             technical_details={
                 "verified_in_iteration": iteration,
                 "confidence": evaluated_confidence,
@@ -129,22 +133,30 @@ async def verify_hypothesis_node(
         logger.info(
             "root_cause_identified",
             incident_id=incident_id,
-            hypothesis_title=best_candidate.title,
+            hypothesis_title=updated_candidate.title,
             confidence=evaluated_confidence,
             iteration=iteration,
         )
 
         return {
-            "selected_hypothesis": best_candidate,
+            "hypotheses": updated_hypotheses,
+            "selected_hypothesis": updated_candidate,
             "root_cause": root_cause,
             "investigation_status": "ROOT_CAUSE_IDENTIFIED",
             "missing_evidence_queries": [],
         }
 
-    # Request missing telemetry when confidence remains below verification threshold
-    best_candidate.status = HypothesisStatus.TESTING
+    # Not verified: at the last allowed iteration, stop looping without fabricating a root
+    # cause (should_continue_investigation already routes to propose_remediation once
+    # max_iterations is reached, regardless of root_cause). Otherwise request more telemetry.
+    at_max_iterations = iteration >= max_iterations
+    final_status = HypothesisStatus.INCONCLUSIVE if at_max_iterations else HypothesisStatus.TESTING
+    updated_candidate, updated_hypotheses = _with_updated_candidate(final_status)
+
     logger.info(
-        "additional_evidence_requested",
+        "investigation_inconclusive_at_max_iterations"
+        if at_max_iterations
+        else "additional_evidence_requested",
         incident_id=incident_id,
         current_confidence=evaluated_confidence,
         missing_queries_count=len(missing_queries),
@@ -152,7 +164,10 @@ async def verify_hypothesis_node(
     )
 
     return {
-        "selected_hypothesis": best_candidate,
+        "hypotheses": updated_hypotheses,
+        "selected_hypothesis": updated_candidate,
         "root_cause": None,
-        "missing_evidence_queries": missing_queries or ["sum(rate(http_requests_total[1m]))"],
+        "missing_evidence_queries": []
+        if at_max_iterations
+        else (missing_queries or ["sum(rate(http_requests_total[1m]))"]),
     }

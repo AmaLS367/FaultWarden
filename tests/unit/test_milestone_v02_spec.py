@@ -374,20 +374,27 @@ async def test_spec_14_existing_alertmanager_pipeline_still_works(
     sample_alertmanager_payload: dict[str, Any],
 ) -> None:
     """Requirement 14: Deterministic Alertmanager ingestion pipeline remains intact and idempotent."""
+    from fastapi import BackgroundTasks
+
     from faultwarden.schemas.alert import AlertmanagerPayload
     from faultwarden.services.alert_service import AlertService
 
     incident_service = IncidentService(session=db_session)
     alert_service = AlertService(incident_service=incident_service)
+    background_tasks = BackgroundTasks()
 
     payload = AlertmanagerPayload.model_validate(sample_alertmanager_payload)
 
     # 1. First alert creates incident
-    inc1, resp1 = await alert_service.process_alertmanager_webhook(payload, auto_investigate=False)
+    inc1, resp1 = await alert_service.process_alertmanager_webhook(
+        payload, background_tasks=background_tasks, auto_investigate=False
+    )
     assert resp1.status == "created"
     assert inc1.status == IncidentStatus.DETECTED
 
     # 2. Duplicate alert updates incident idempotently
-    inc2, resp2 = await alert_service.process_alertmanager_webhook(payload, auto_investigate=False)
+    inc2, resp2 = await alert_service.process_alertmanager_webhook(
+        payload, background_tasks=background_tasks, auto_investigate=False
+    )
     assert resp2.status == "updated"
     assert inc2.id == inc1.id

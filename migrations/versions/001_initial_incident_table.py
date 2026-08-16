@@ -11,6 +11,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from faultwarden.db.base import GUID
+
 # revision identifiers, used by Alembic.
 revision: str = "001_initial"
 down_revision: str | None = None
@@ -21,7 +23,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "incidents",
-        sa.Column("id", sa.CHAR(36), primary_key=True, nullable=False),
+        sa.Column("id", GUID(), primary_key=True, nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("status", sa.String(length=50), nullable=False),
         sa.Column("severity", sa.String(length=50), nullable=False),

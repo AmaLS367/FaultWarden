@@ -1,5 +1,7 @@
 """Service for processing Alertmanager webhooks and ingesting alerts."""
 
+from fastapi import BackgroundTasks
+
 from faultwarden.core.logging import get_logger
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.schemas.alert import AlertIngestResponse, AlertmanagerPayload
@@ -10,7 +12,7 @@ from faultwarden.schemas.incident import (
     IncidentUpdate,
 )
 from faultwarden.services.incident_service import IncidentService
-from faultwarden.services.investigation_service import trigger_background_investigation
+from faultwarden.services.investigation_service import run_background_investigation
 
 logger = get_logger("faultwarden.services.alert")
 
@@ -33,7 +35,10 @@ class AlertService:
 
     # --- Public Ingestion API ---
     async def process_alertmanager_webhook(
-        self, payload: AlertmanagerPayload, auto_investigate: bool = True
+        self,
+        payload: AlertmanagerPayload,
+        background_tasks: BackgroundTasks,
+        auto_investigate: bool = True,
     ) -> tuple[IncidentModel, AlertIngestResponse]:
         """Convert an Alertmanager webhook payload into a tracked incident idempotently."""
         fingerprint = payload.primary_fingerprint
@@ -76,6 +81,7 @@ class AlertService:
             title=title,
             severity=severity,
             summary=summary,
+            background_tasks=background_tasks,
             auto_investigate=auto_investigate,
         )
 
@@ -88,6 +94,7 @@ class AlertService:
         title: str,
         severity: IncidentSeverity,
         summary: str,
+        background_tasks: BackgroundTasks,
         auto_investigate: bool = True,
     ) -> tuple[IncidentModel, AlertIngestResponse]:
         """Process firing alerts idempotently by checking for an active incident fingerprint."""
@@ -142,9 +149,11 @@ class AlertService:
             )
             response_status = "created"
 
-            # Launch non-blocking background investigation without delaying webhook response
+            # Launch non-blocking background investigation without delaying webhook response.
+            # BackgroundTasks runs this only after the response (and thus the session commit
+            # in get_db_session) has completed, so the incident row is guaranteed visible.
             if auto_investigate:
-                trigger_background_investigation(incident.id)
+                background_tasks.add_task(run_background_investigation, incident.id)
 
         response = AlertIngestResponse(
             status=response_status,
@@ -188,7 +197,10 @@ class AlertService:
             )
             response_status = "alert_resolved"
         else:
-            # Record unlinked resolved notification for post-mortem auditability
+            # Record unlinked resolved notification for post-mortem auditability. Created
+            # already-RESOLVED (not DETECTED) since there is no active condition to track —
+            # a live status here would otherwise permanently block the next real firing alert
+            # on this fingerprint from starting a fresh investigation.
             logger.info(
                 "alert_resolved_unmatched",
                 alert_fingerprint=fingerprint,
@@ -196,7 +208,7 @@ class AlertService:
             )
             incident_create = IncidentCreate(
                 title=title,
-                status=IncidentStatus.DETECTED,
+                status=IncidentStatus.RESOLVED,
                 severity=severity,
                 source="alertmanager",
                 summary=summary,

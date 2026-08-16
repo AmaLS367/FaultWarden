@@ -12,7 +12,12 @@ logger = get_logger("faultwarden.graph.nodes.correlate")
 async def correlate_evidence_node(
     state: IncidentInvestigationState,
 ) -> dict[str, Any]:
-    """Sort and correlate metrics, logs, and alert evidence into an aligned investigation timeline."""
+    """Summarize accumulated metrics, logs, and alert evidence by type into a correlation summary.
+
+    Does not reorder or return the `evidence` list itself: it uses an additive reducer
+    (each collection node appends to it), so returning a re-sorted copy here would duplicate
+    every prior item rather than reorder them.
+    """
     incident_id = state.get("incident_id", "unknown")
     evidence_list = state.get("evidence", [])
 
@@ -22,27 +27,19 @@ async def correlate_evidence_node(
         evidence_count=len(evidence_list),
     )
 
-    # Sort evidence items by relevance descending, then collection time
-    sorted_evidence = sorted(
-        evidence_list,
-        key=lambda item: (item.relevance, item.collected_at),
-        reverse=True,
-    )
-
-    # Summarize correlated findings
-    metric_count = sum(1 for e in sorted_evidence if e.evidence_type == "METRIC")
-    log_count = sum(1 for e in sorted_evidence if e.evidence_type == "LOG")
-    alert_count = sum(1 for e in sorted_evidence if e.evidence_type == "ALERT")
+    metric_count = sum(1 for e in evidence_list if e.evidence_type == "METRIC")
+    log_count = sum(1 for e in evidence_list if e.evidence_type == "LOG")
+    alert_count = sum(1 for e in evidence_list if e.evidence_type == "ALERT")
 
     correlation_summary = (
-        f"Correlated {len(sorted_evidence)} evidence items: "
+        f"Correlated {len(evidence_list)} evidence items: "
         f"{alert_count} alert(s), {metric_count} metric sample(s), {log_count} log pattern(s)."
     )
 
     logger.info(
         "evidence_correlation_completed",
         incident_id=incident_id,
-        total_evidence=len(sorted_evidence),
+        total_evidence=len(evidence_list),
         summary=correlation_summary,
     )
 

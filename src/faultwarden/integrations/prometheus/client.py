@@ -58,7 +58,7 @@ class PrometheusClient(MetricsProvider):
     async def check_health(self) -> bool:
         """Verify Prometheus HTTP API is accessible."""
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=0.3) as client:
+            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
                 resp = await client.get("/-/healthy")
                 return resp.status_code == 200
         except Exception as exc:
@@ -152,6 +152,31 @@ class PrometheusClient(MetricsProvider):
 
         data = payload.get("data", {})
         result_type = data.get("resultType")
+
+        if result_type == "scalar":
+            # data["result"] is a single [timestamp, value] pair, not a list of series items
+            raw_pair = data.get("result")
+            if isinstance(raw_pair, list) and len(raw_pair) == 2:
+                ts, val = raw_pair
+                results.append(
+                    MetricData(
+                        query=query,
+                        labels={},
+                        values=[
+                            MetricDataPoint(
+                                timestamp=datetime.fromtimestamp(float(ts), tz=UTC),
+                                value=float(val),
+                            )
+                        ],
+                        summary=f"Result for {query} with 1 point",
+                    )
+                )
+            return results
+
+        if result_type == "string":
+            # Non-numeric scalar result; nothing meaningful to surface as MetricData
+            return results
+
         raw_items = data.get("result", [])
 
         for item in raw_items:

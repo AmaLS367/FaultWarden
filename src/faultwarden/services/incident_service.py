@@ -76,7 +76,7 @@ class IncidentService:
             select(IncidentModel)
             .where(
                 IncidentModel.fingerprint == fingerprint,
-                IncidentModel.status != IncidentStatus.RESOLVED,
+                IncidentModel.status.not_in([IncidentStatus.RESOLVED, IncidentStatus.FAILED]),
             )
             .order_by(desc(IncidentModel.created_at))
             .limit(1)

@@ -46,7 +46,7 @@ class LokiClient(LogsProvider):
     async def check_health(self) -> bool:
         """Check if Loki is ready."""
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=0.3) as client:
+            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
                 resp = await client.get("/ready")
                 return resp.status_code == 200
         except Exception as exc:
