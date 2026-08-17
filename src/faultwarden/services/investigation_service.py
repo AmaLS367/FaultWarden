@@ -319,6 +319,20 @@ class InvestigationService:
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
 
+            # Derive verified causal changes strictly from root_cause.causal_change_ids
+            verified_causal_ids: set[str] = set()
+            if root_cause_val is not None:
+                if hasattr(root_cause_val, "causal_change_ids"):
+                    verified_causal_ids = set(root_cause_val.causal_change_ids)
+                elif isinstance(root_cause_val, dict) and "causal_change_ids" in root_cause_val:
+                    verified_causal_ids = set(root_cause_val["causal_change_ids"])
+
+            verified_causal_changes = [
+                ch
+                for ch in recent_changes_list
+                if (ch.id if hasattr(ch, "id") else ch.get("id")) in verified_causal_ids
+            ]
+
             # Check if graph paused on interrupt (e.g. Level-2 approval required)
             if _is_graph_paused(final_state):
                 await self._persist_remediation(final_state, audit_service, incident.id)
@@ -330,7 +344,8 @@ class InvestigationService:
                     root_cause=root_cause_val,
                     proposed_remediations=proposals_list,
                     recent_changes=recent_changes_list,
-                    causal_changes=candidate_causal_list,
+                    candidate_causal_changes=candidate_causal_list,
+                    causal_changes=verified_causal_changes,
                     summary=summary_val or incident.summary,
                     classification=classification_val,
                     iteration_count=iteration_val,
@@ -369,7 +384,8 @@ class InvestigationService:
                 root_cause=root_cause_val,
                 proposed_remediations=proposals_list,
                 recent_changes=recent_changes_list,
-                causal_changes=candidate_causal_list,
+                candidate_causal_changes=candidate_causal_list,
+                causal_changes=verified_causal_changes,
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,
@@ -514,6 +530,20 @@ class InvestigationService:
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
 
+            # Derive verified causal changes strictly from root_cause.causal_change_ids
+            verified_causal_ids: set[str] = set()
+            if root_cause_val is not None:
+                if hasattr(root_cause_val, "causal_change_ids"):
+                    verified_causal_ids = set(root_cause_val.causal_change_ids)
+                elif isinstance(root_cause_val, dict) and "causal_change_ids" in root_cause_val:
+                    verified_causal_ids = set(root_cause_val["causal_change_ids"])
+
+            verified_causal_changes = [
+                ch
+                for ch in recent_changes_list
+                if (ch.id if hasattr(ch, "id") else ch.get("id")) in verified_causal_ids
+            ]
+
             if _is_graph_paused(final_state):
                 await self._persist_remediation(final_state, audit_service, incident.id)
 
@@ -524,7 +554,8 @@ class InvestigationService:
                     root_cause=root_cause_val,
                     proposed_remediations=proposals_list,
                     recent_changes=recent_changes_list,
-                    causal_changes=candidate_causal_list,
+                    candidate_causal_changes=candidate_causal_list,
+                    causal_changes=verified_causal_changes,
                     summary=summary_val or incident.summary,
                     classification=classification_val,
                     iteration_count=iteration_val,
@@ -559,7 +590,8 @@ class InvestigationService:
                 root_cause=root_cause_val,
                 proposed_remediations=proposals_list,
                 recent_changes=recent_changes_list,
-                causal_changes=candidate_causal_list,
+                candidate_causal_changes=candidate_causal_list,
+                causal_changes=verified_causal_changes,
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,

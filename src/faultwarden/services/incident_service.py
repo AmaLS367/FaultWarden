@@ -175,6 +175,14 @@ class IncidentService:
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else item
                 for item in update_data.recent_changes
             ]
+        if (
+            "candidate_causal_changes" in update_dict
+            and update_data.candidate_causal_changes is not None
+        ):
+            update_dict["candidate_causal_changes"] = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in update_data.candidate_causal_changes
+            ]
         if "causal_changes" in update_dict and update_data.causal_changes is not None:
             update_dict["causal_changes"] = [
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else item

@@ -14,11 +14,15 @@
 ## Current Status
 
 > [!NOTE]
-> **v0.5 Milestone — Change Intelligence**: FaultWarden correlates operational failures with recent
-> Git commits, deployments, configuration changes, and release metadata. Using a strict multi-factor
-> scoring engine (temporal decay, component match, symptom cluster alignment), FaultWarden identifies
-> causal changes without false positives (temporal proximity alone is never proof of causation).
-> Causal changes are integrated directly into root-cause verification, postmortems, and pgvector incident memory.
+> **v0.5.1 Milestone — Causality Hardening**: FaultWarden enforces strict deterministic causal-promotion
+> gates (`verify_causal_change_association`) ensuring recent operational changes cannot become verified
+> causal factors through temporal proximity, same-service membership, or LLM hallucination alone.
+> Candidate changes and verified causal changes are explicitly separated in persistence and REST API.
+>
+> **v0.5 Milestone — Change Intelligence**: Correlates operational failures with recent Git commits,
+> deployments, and configuration changes using deterministic multi-factor scoring (temporal decay, component
+> match, symptom cluster alignment) to reduce false causal attribution. Verified causal changes are integrated
+> directly into root-cause verification, postmortems, and pgvector incident memory.
 >
 > **v0.4 Milestone — Incident Memory**: pgvector-backed semantic incident retrieval and factual postmortems.
 > **v0.3 Milestone — Remediation Engine**: Deterministic safety tiers, human approval gates (`interrupt()`), and post-remediation validation.
@@ -57,8 +61,8 @@ faultwarden/
 ├── src/
 │   └── faultwarden/
 │       ├── api/               # FastAPI routers: /health, /alerts, /incidents, /incidents/{id}/remediations,
-│       │                      #   /incidents/{id}/postmortem, /incidents/{id}/memory, /memory, /changes
-│       ├── core/              # Pydantic Settings, structlog logging, domain exceptions, policy engine
+│       │                      #   /incidents/{id}/postmortem, /incidents/{id}/memory, /memory, /changes, /causal-changes
+│       ├── core/              # Pydantic Settings, structlog logging, domain exceptions, policy & causality engines
 │       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, ORM models (Incident + Remediation*,
 │       │                      #   Postmortem, Memory, InvestigationJob)
 │       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediation,
@@ -199,8 +203,9 @@ With the stack running (`docker compose up -d`), background traffic is automatic
 
    curl -X POST http://localhost:8000/api/v1/incidents/{incident_id}/remediations/{remediation_id}/approve \
      -H "Content-Type: application/json" -d '{"approved_by": "you@example.com"}'
-   # resumes the paused LangGraph workflow, executes exactly once, validates, and (if recovery is
-   # confirmed) transitions the incident to RESOLVED
+   # resumes the paused LangGraph workflow, executes with durable state claiming, target-side
+   # idempotency, and retry protection, validates telemetry, and (if recovery is confirmed)
+   # transitions the incident to RESOLVED
    ```
 
    See [docs/ARCHITECTURE.md §10](docs/ARCHITECTURE.md#10-running-the-demos) for both the Level 1

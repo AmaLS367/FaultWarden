@@ -4,6 +4,7 @@ import asyncio
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from faultwarden.core.logging import get_logger
 from faultwarden.schemas.change import (
@@ -161,8 +162,26 @@ class GitChangeProvider:
             combined_text = f"{subject}\n{body}"
             config_changes = self._extract_config_changes(combined_text)
 
+            # If commit SHA is a valid 40-char hex string, fetch bounded diff to extract real config changes
+            diff_snippet: str | None = None
+            if re.match(r"^[0-9a-fA-F]{40}$", commit_sha):
+                diff_args = ["show", "--format=", "--unified=1", "--no-ext-diff", commit_sha]
+                raw_diff = await self._run_git_command(diff_args)
+                if raw_diff:
+                    diff_snippet = raw_diff[:MAX_DIFF_CHARS]
+                    diff_configs = self._extract_config_changes(diff_snippet)
+                    existing_keys = {c.key.upper() for c in config_changes}
+                    for dc in diff_configs:
+                        if dc.key.upper() not in existing_keys:
+                            config_changes.append(dc)
+                            existing_keys.add(dc.key.upper())
+
             # Bounded description
             description = body[:MAX_DIFF_CHARS] if body else None
+
+            meta: dict[str, Any] = {"commit_sha_full": commit_sha}
+            if diff_snippet:
+                meta["diff_preview"] = diff_snippet[:300]
 
             change = OperationalChange(
                 id=f"git-{commit_sha[:10]}",
@@ -176,7 +195,7 @@ class GitChangeProvider:
                 deployment_id=None,
                 title=subject,
                 description=description,
-                metadata={"commit_sha_full": commit_sha},
+                metadata=meta,
                 files_changed=files_changed,
                 config_changes=config_changes,
                 previous_version=None,

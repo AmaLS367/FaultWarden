@@ -291,8 +291,8 @@ auditable via `RejectedAction.reason`, never silently dropped.
 ### 6.4 Approval flow & durability
 
 * **Primary proposal selection**: an investigation run may produce several `RemediationProposal`s
-  (e.g. the LLM proposing more than one candidate). v0.3 acts on exactly one — the
-  highest-`proposed_risk` proposal — per run. The rest remain visible as recommendations only.
+  (e.g. the LLM proposing more than one candidate). v0.3 acts on exactly one primary proposal
+  (evaluated through the deterministic policy matrix) per run. The rest remain visible as recommendations only.
 * **Interrupt**: `await_remediation_approval_node` builds a minimal `ApprovalContext` (incident,
   root cause, confidence, action type/parameters, risk level, expected effect, evidence IDs, why
   approval is required) and calls `interrupt(...)`. LangGraph's checkpointer persists the entire
@@ -308,7 +308,7 @@ auditable via `RejectedAction.reason`, never silently dropped.
   | :------------------------------------------------ | :-------------------------------------------------------- |
   | `GET  /`                                          | List all remediation actions for an incident              |
   | `GET  /{remediation_id}`                          | One action, including its execution result if any         |
-  | `POST /{remediation_id}/approve`                  | Approve — resumes the paused graph, executes exactly once  |
+  | `POST /{remediation_id}/approve`                  | Approve — resumes the paused graph, executes with durable state claiming, target-side idempotency, and retry protection |
   | `POST /{remediation_id}/reject`                   | Reject — resumes the graph, nothing executes                |
 
   Approval approves **the exact validated action** — the request body accepts only an
@@ -473,6 +473,31 @@ $$\text{Relevance Score} = 0.35 \times \text{Temporal} + 0.45 \times \text{Sympt
 * **Symptom Match**: Token matching against domain symptom keyword clusters (`db_pool`, `timeout`, `memory`, `cpu`, `error_rate`, `concurrency`).
 * **Candidate Threshold**: A change is marked as a candidate causal factor only if:
   $$\text{Relevance Score} \ge \text{Threshold } (0.60) \land \text{ComponentMatch} \land \text{SymptomMatch} \land \text{Temporal} \ge 0.30$$
+
+### 9.3 Deterministic Causal Verification Gate (v0.5.1)
+
+To prevent LLM hallucination, temporal bias, or same-service assumptions from promoting non-causal changes, FaultWarden v0.5.1 enforces an authoritative deterministic promotion gate (`verify_causal_change_association`):
+
+1. **Gate Invariants**: An operational change may be promoted into `RootCauseAnalysis.causal_change_ids` **only** if ALL of the following pass:
+   - Change ID exists in `recent_changes`.
+   - `ChangeCorrelation` exists and `is_causal_candidate == True`.
+   - `component_match == True` and service name matches `hypothesis.affected_component`.
+   - `symptom_match == True` (diff or parameters semantically match symptoms).
+   - `relevance_score >= correlation_threshold`.
+   - `evidence_links` contains at least one current `EvidenceItem` ID that still exists in the active evidence inventory.
+   - Change occurred before incident onset (`temporal_score >= 0.30`).
+   - The hypothesis explicitly references the change in `related_change_ids`.
+
+2. **Explicit Separation of Causal Concepts**:
+   - `recent_changes`: All bounded operational changes collected in the incident window.
+   - `candidate_causal_changes`: Changes that passed initial correlation scoring (`is_causal_candidate == True`).
+   - `causal_changes`: Strictly **VERIFIED** causal changes that survived the deterministic verification gate.
+
+3. **API & Persistence Boundaries**:
+   - `GET /api/v1/incidents/{id}/changes` returns all recent operational changes.
+   - `GET /api/v1/incidents/{id}/causal-changes` returns **strictly verified causal changes**.
+   - `IncidentPostmortem` documents verified causal changes under root cause; unverified candidates in the timeline remain standard operational events.
+   - `IncidentMemory` indexes `causal_change_summary` and `causal_change_type` only when a verified causal change exists.
 
 ---
 

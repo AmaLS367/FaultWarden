@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from faultwarden.core.causality import verify_causal_change_association
 from faultwarden.core.config import get_settings
 from faultwarden.core.logging import get_logger
 from faultwarden.graph.nodes._context import get_llm_provider_from_config
@@ -34,6 +35,7 @@ async def verify_hypothesis_node(
     settings = get_settings()
     confidence_threshold = settings.investigation.confidence_threshold
     max_iterations = settings.investigation.max_iterations
+    correlation_threshold = settings.change.correlation_threshold
 
     logger.info(
         "hypothesis_verification_started",
@@ -127,8 +129,6 @@ async def verify_hypothesis_node(
         sanitized_supporting_ids = [
             eid for eid in best_candidate.supporting_evidence_ids if eid in valid_evidence_ids
         ]
-        if not sanitized_supporting_ids and valid_evidence_ids:
-            sanitized_supporting_ids = list(valid_evidence_ids)
 
         updated_candidate, updated_hypotheses = _with_updated_candidate(HypothesisStatus.VERIFIED)
         # Ensure the candidate in state has sanitized supporting evidence IDs
@@ -139,23 +139,37 @@ async def verify_hypothesis_node(
             updated_candidate if h.id == best_candidate.id else h for h in updated_hypotheses
         ]
 
-        # Check and verify causal change associations
+        # Check and verify causal change associations through deterministic promotion gate
         recent_changes = state.get("recent_changes", [])
+        change_correlations = state.get("change_correlations", [])
         change_map = {ch.id: ch for ch in recent_changes}
+        corr_map = {corr.change_id: corr for corr in change_correlations}
+
         causal_changes: list[Any] = []
         causal_change_ids: list[str] = []
         causal_change_summary: str | None = None
         selected_causal_change = None
+        causal_change_type_val: str | None = None
 
         for cid in updated_candidate.related_change_ids:
             if cid in change_map:
                 ch = change_map[cid]
-                # Verify that change belongs to affected component
-                if ch.service.lower() == updated_candidate.affected_component.lower():
+                corr = corr_map.get(cid)
+                if verify_causal_change_association(
+                    hypothesis=updated_candidate,
+                    change=ch,
+                    correlation=corr,
+                    current_evidence_ids=valid_evidence_ids,
+                    correlation_threshold=correlation_threshold,
+                ):
                     causal_changes.append(ch)
                     causal_change_ids.append(ch.id)
                     if selected_causal_change is None:
                         selected_causal_change = ch
+                        if corr is not None and hasattr(corr.causal_category, "value"):
+                            causal_change_type_val = corr.causal_category.value
+                        elif hasattr(ch.change_type, "value"):
+                            causal_change_type_val = ch.change_type.value
 
         if selected_causal_change is not None:
             config_diffs = []
@@ -177,6 +191,14 @@ async def verify_hypothesis_node(
         classification = state.get("classification")
         category_name = classification.category.value if classification is not None else "UNKNOWN"
 
+        tech_details: dict[str, Any] = {
+            "verified_in_iteration": iteration,
+            "confidence": evaluated_confidence,
+            "causal_change_ids": causal_change_ids,
+        }
+        if causal_change_type_val is not None:
+            tech_details["causal_change_type"] = causal_change_type_val
+
         root_cause = RootCauseAnalysis(
             primary_hypothesis_id=updated_candidate.id,
             summary=f"Root cause verified: {updated_candidate.title}. {updated_candidate.description}",
@@ -186,11 +208,7 @@ async def verify_hypothesis_node(
             supporting_evidence_ids=sanitized_supporting_ids,
             causal_change_ids=causal_change_ids,
             causal_change_summary=causal_change_summary,
-            technical_details={
-                "verified_in_iteration": iteration,
-                "confidence": evaluated_confidence,
-                "causal_change_ids": causal_change_ids,
-            },
+            technical_details=tech_details,
             confidence=evaluated_confidence,
             identified_at=now,
         )

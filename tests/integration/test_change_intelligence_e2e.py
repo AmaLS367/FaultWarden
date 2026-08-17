@@ -32,6 +32,8 @@ class MockE2EChangeProvider(ChangeProvider):
         end_time: datetime,
         limit: int = 50,
     ) -> list[OperationalChange]:
+        # Change occurred before incident onset within the lookback window
+        change_ts = start_time + (end_time - start_time) / 2
         return [
             OperationalChange(
                 id="deploy-002",
@@ -39,7 +41,7 @@ class MockE2EChangeProvider(ChangeProvider):
                 service=service,
                 change_type=ChangeType.DEPLOYMENT,
                 title="Deploy v1.0.1: DB_POOL_SIZE changed from 20 to 5",
-                timestamp=datetime.now(UTC),
+                timestamp=change_ts,
                 config_changes=[
                     ConfigurationChange(
                         key="DB_POOL_SIZE",

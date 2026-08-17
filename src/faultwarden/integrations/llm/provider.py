@@ -1,6 +1,7 @@
 """LLM provider interface, OpenAI-compatible implementation, and deterministic mock provider."""
 
 import json
+import re
 from typing import Protocol, TypeVar, runtime_checkable
 
 import httpx
@@ -164,6 +165,17 @@ class MockLLMProvider(LLMProvider):
                 HypothesisGenerationResponse,
             )
 
+            # Extract evidence and change IDs present in prompt context
+            prompt_evidence_ids = re.findall(r"Evidence ID:\s*([a-zA-Z0-9_-]+)", prompt)
+            if not prompt_evidence_ids:
+                prompt_evidence_ids = re.findall(r"\b(ev-[a-zA-Z0-9_-]+)\b", prompt)
+
+            prompt_change_ids = re.findall(
+                r"\[([a-zA-Z0-9_-]+)\]\s*\((?:DEPLOYMENT|GIT_COMMIT|CONFIG_CHANGE)", prompt
+            )
+            if not prompt_change_ids:
+                prompt_change_ids = re.findall(r"\b((?:deploy|git)-[a-zA-Z0-9_-]+)\b", prompt)
+
             # Detect simulated failure patterns from prompt evidence
             if (
                 "pool exhausted" in lower_prompt
@@ -177,11 +189,12 @@ class MockLLMProvider(LLMProvider):
                             "The service exhausted its PostgreSQL connection pool due to high query concurrency "
                             "or slow database responses, leading to queue timeouts and HTTP 500 errors."
                         ),
-                        affected_component="demo-service-db-pool",
+                        affected_component="demo-service",
                         confidence_score=0.88,
-                        supporting_evidence_ids=[],
+                        supporting_evidence_ids=prompt_evidence_ids,
                         refuting_evidence_ids=[],
                         missing_evidence_needed=[],
+                        related_change_ids=prompt_change_ids,
                         reasoning_summary="Logs explicitly show 'Database connection pool exhausted' and elevated 5xx error rate.",
                     ),
                     HypothesisCandidate(
@@ -194,6 +207,7 @@ class MockLLMProvider(LLMProvider):
                         missing_evidence_needed=[
                             "rate(http_requests_total{service='payment-gateway'}[1m])"
                         ],
+                        related_change_ids=[],
                         reasoning_summary="No error logs indicate external payment timeouts.",
                     ),
                 ]
@@ -204,9 +218,10 @@ class MockLLMProvider(LLMProvider):
                         description="Elevated 5xx status codes observed on incoming HTTP endpoints.",
                         affected_component="demo-service",
                         confidence_score=0.80,
-                        supporting_evidence_ids=[],
+                        supporting_evidence_ids=prompt_evidence_ids,
                         refuting_evidence_ids=[],
                         missing_evidence_needed=[],
+                        related_change_ids=prompt_change_ids,
                         reasoning_summary="Metric telemetry shows rate(5xx) > 0.",
                     )
                 ]

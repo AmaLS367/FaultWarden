@@ -89,6 +89,9 @@ def _create_mock_llm(action_candidates: list[RemediationActionCandidate]) -> Asy
                 reasoning="Classification reasoning",
             )
         if schema_name == "HypothesisGenerationResponse":
+            import re
+
+            evidence_ids = re.findall(r"Evidence ID: ([0-9a-fA-F-]+)", prompt)
             return HypothesisGenerationResponse(
                 hypotheses=[
                     HypothesisCandidate(
@@ -96,7 +99,7 @@ def _create_mock_llm(action_candidates: list[RemediationActionCandidate]) -> Asy
                         description="Connection pool exhausted under load",
                         affected_component="demo-service",
                         confidence_score=0.88,
-                        supporting_evidence_ids=[],
+                        supporting_evidence_ids=evidence_ids,
                         refuting_evidence_ids=[],
                         missing_evidence_needed=[],
                         reasoning_summary="Observed connection timeouts",

@@ -78,10 +78,16 @@ def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
     )
     recent_changes = [OperationalChange.model_validate(c) for c in (incident.recent_changes or [])]
     candidate_causal_changes = [
+        OperationalChange.model_validate(c)
+        for c in (getattr(incident, "candidate_causal_changes", None) or [])
+    ]
+    verified_causal_changes = [
         OperationalChange.model_validate(c) for c in (incident.causal_changes or [])
     ]
     selected_causal_change: OperationalChange | None = None
-    if root_cause and root_cause.causal_change_ids:
+    if verified_causal_changes:
+        selected_causal_change = verified_causal_changes[0]
+    elif root_cause and root_cause.causal_change_ids:
         all_known = {c.id: c for c in (recent_changes + candidate_causal_changes)}
         for cid in root_cause.causal_change_ids:
             if cid in all_known:
@@ -304,7 +310,7 @@ async def get_similar_incidents(
     "/{incident_id}/changes",
     response_model=list[OperationalChange],
     summary="Get Recent Incident Changes",
-    description="Retrieve recent deployments, git commits, and config changes correlated with the incident.",
+    description="Retrieve bounded recent deployments, git commits, and config changes collected for the incident.",
 )
 async def get_incident_changes(
     incident_id: UUID,
@@ -318,14 +324,14 @@ async def get_incident_changes(
 @router.get(
     "/{incident_id}/causal-changes",
     response_model=list[OperationalChange],
-    summary="Get Causal Incident Changes",
-    description="Retrieve verified or candidate causal changes that directly induced the incident.",
+    summary="Get Verified Causal Incident Changes",
+    description="Retrieve verified causal changes confirmed by deterministic correlation and telemetry evidence gates to have directly contributed to or induced the incident.",
 )
 async def get_incident_causal_changes(
     incident_id: UUID,
     incident_service: IncidentService = Depends(get_incident_service),
 ) -> list[OperationalChange]:
-    """Fetch candidate or verified causal operational changes for an incident."""
+    """Fetch strictly verified causal operational changes for an incident."""
     incident = await incident_service.get_incident(incident_id)
     causal_changes = [OperationalChange.model_validate(c) for c in (incident.causal_changes or [])]
     if not causal_changes and incident.root_cause and incident.root_cause.get("causal_change_ids"):

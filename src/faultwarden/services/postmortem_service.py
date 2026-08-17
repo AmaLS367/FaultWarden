@@ -393,7 +393,10 @@ class PostmortemService:
         postmortem_id = uuid4()
         now = datetime.now(UTC)
 
-        causal_change_summary = root_cause.get("causal_change_summary")
+        verified_causal_ids = root_cause.get("causal_change_ids", [])
+        causal_change_summary = (
+            root_cause.get("causal_change_summary") if verified_causal_ids else None
+        )
 
         model = IncidentPostmortemModel(
             id=postmortem_id,

@@ -14,13 +14,14 @@ When modifying this repository, you **MUST** strictly adhere to the rules, bound
 4. **No arbitrary shell execution**: FaultWarden never uses raw `subprocess` or unrestricted shell execution to remediate incidents. All actions must map to typed `RemediationAction` definitions.
 5. **Enforce Remediation Safety Tiers**: Never execute Level 2 actions (rollbacks, database mutations, infrastructure modifications) without explicit operator approval (`AWAITING_APPROVAL` status).
 6. **Temporal proximity is not causation**: Operational changes (deployments, git commits, configuration changes) are evaluated via multi-factor semantic and symptom alignment. Recent timing alone never qualifies a change as causal.
+7. **Causal Promotion is Deterministic**: An operational change may be promoted to a verified causal change (`RootCauseAnalysis.causal_change_ids`) only if it passes all deterministic causal verification gates (`core/causality.py`) against current telemetry.
 
 ---
 
 ## 2. Repository Layout
 
 * `src/faultwarden/api/`: FastAPI routes (`routes/incidents.py`, `routes/remediations.py`, `routes/memory.py`, `routes/alerts.py`), dependency injection, and router aggregation.
-* `src/faultwarden/core/`: Configuration (`BaseSettings`), structured logging (`structlog`), domain exception hierarchy, and the deterministic remediation policy engine (`core/policy.py`).
+* `src/faultwarden/core/`: Configuration (`BaseSettings`), structured logging (`structlog`), domain exception hierarchy, deterministic remediation policy engine (`core/policy.py`), and causal verification engine (`core/causality.py`).
 * `src/faultwarden/db/`: SQLAlchemy 2 async engine, declarative base, and models (`IncidentModel`, `Remediation*`, `IncidentPostmortemModel`, `IncidentMemoryModel`, `InvestigationJobModel`).
 * `src/faultwarden/schemas/`: Pydantic v2 domain schemas (`AlertmanagerPayload`, `IncidentRead`, `EvidenceItem`, `Hypothesis`, `RemediationProposal`/`RemediationAction`, `IncidentPostmortem`, `IncidentMemory`, `OperationalChange`/`ConfigurationChange`/`ChangeCorrelation`).
 * `src/faultwarden/graph/`: LangGraph `StateGraph`, `IncidentInvestigationState`, deterministic node definitions (including `collect_recent_changes`, `correlate_evidence`), and durable PostgreSQL checkpointer.
@@ -29,7 +30,7 @@ When modifying this repository, you **MUST** strictly adhere to the rules, bound
 * `src/faultwarden/telemetry/`: OpenTelemetry setup boundary and Prometheus `/metrics` registry.
 * `demo_service/`: Standalone breakable FastAPI service exposing `/health`, `/debug/error-mode/{enabled}`, `/deployments`, and `/metrics`.
 * `observability/`: Prometheus, Alertmanager, Loki, Grafana, and OpenTelemetry collector configurations.
-* `migrations/`: Alembic database migration scripts (001 through 007).
+* `migrations/`: Alembic database migration scripts (001 through 008).
 
 ---
 

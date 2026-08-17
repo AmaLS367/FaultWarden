@@ -151,9 +151,8 @@ async def generate_hypotheses_node(
                 elif eid in all_change_ids and eid not in valid_change_refs:
                     valid_change_refs.append(eid)
 
-            # If model didn't fill in supporting IDs, associate all matching evidence by default
-            if not valid_supporting and all_valid_ids:
-                valid_supporting = list(all_valid_ids)
+            # Invariant: If model did NOT supply valid supporting IDs from current evidence,
+            # supporting_evidence_ids remains empty. Never fabricate artificial groundedness.
 
             hypotheses.append(
                 Hypothesis(
@@ -186,16 +185,19 @@ async def generate_hypotheses_node(
     # - Fallback Heuristic if LLM returned nothing or failed
     if not hypotheses:
         service_name = resolve_service_from_state(state, default="demo-service")
-        evidence_ids = [e.id for e in evidence_list]
         top_hist_ids = [str(similar_incidents[0].incident_id)] if similar_incidents else []
         top_change_ids = [candidate_causal_changes[0].id] if candidate_causal_changes else []
 
-        has_pool_error = any(
-            "pool exhausted" in e.summary.lower() or "db_pool" in e.summary.lower()
+        pool_matching_ids = [
+            e.id
             for e in evidence_list
-        )
+            if "pool" in e.summary.lower()
+            or "db_pool" in e.summary.lower()
+            or "connection" in e.summary.lower()
+            or "exhausted" in e.summary.lower()
+        ]
 
-        if has_pool_error:
+        if pool_matching_ids:
             # Check if there is a correlated config change reducing DB_POOL_SIZE
             causal_desc = "Service connection pool reached max capacity leading to queue timeouts and 500 errors."
             if candidate_causal_changes:
@@ -210,7 +212,7 @@ async def generate_hypotheses_node(
                     affected_component=service_name,
                     confidence_score=0.90 if candidate_causal_changes else 0.85,
                     status=HypothesisStatus.PROPOSED,
-                    supporting_evidence_ids=evidence_ids,
+                    supporting_evidence_ids=pool_matching_ids,
                     historical_reference_ids=top_hist_ids,
                     related_change_ids=top_change_ids,
                     reasoning_summary="Error logs indicate connection pool exhaustion matching recent configuration change."
@@ -220,6 +222,23 @@ async def generate_hypotheses_node(
                 )
             )
         else:
+            error_matching_ids = [
+                e.id
+                for e in evidence_list
+                if any(
+                    k in e.summary.lower()
+                    for k in (
+                        "500",
+                        "502",
+                        "503",
+                        "5xx",
+                        "error",
+                        "server error",
+                        "exception",
+                        "failed",
+                    )
+                )
+            ]
             hypotheses.append(
                 Hypothesis(
                     id=str(uuid4()),
@@ -228,7 +247,7 @@ async def generate_hypotheses_node(
                     affected_component=service_name,
                     confidence_score=0.75,
                     status=HypothesisStatus.PROPOSED,
-                    supporting_evidence_ids=evidence_ids,
+                    supporting_evidence_ids=error_matching_ids,
                     historical_reference_ids=top_hist_ids,
                     related_change_ids=top_change_ids,
                     reasoning_summary="Metrics show non-zero 5xx error rate on HTTP endpoints.",

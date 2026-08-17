@@ -76,7 +76,10 @@ class IncidentCreate(IncidentBase):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
     recent_changes: list[OperationalChange] = Field(default_factory=list)
-    causal_changes: list[OperationalChange] = Field(default_factory=list)
+    candidate_causal_changes: list[OperationalChange] = Field(default_factory=list)
+    causal_changes: list[OperationalChange] = Field(
+        default_factory=list, description="Strictly verified causal changes only"
+    )
     resolution: str | None = None
     classification: IncidentClassification | None = None
     iteration_count: int = 1
@@ -99,6 +102,7 @@ class IncidentUpdate(BaseModel):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] | None = None
     recent_changes: list[OperationalChange] | list[dict[str, Any]] | None = None
+    candidate_causal_changes: list[OperationalChange] | list[dict[str, Any]] | None = None
     causal_changes: list[OperationalChange] | list[dict[str, Any]] | None = None
     resolution: str | None = None
     classification: IncidentClassification | None = None
@@ -118,7 +122,10 @@ class IncidentRead(IncidentBase):
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
     recent_changes: list[OperationalChange] = Field(default_factory=list)
-    causal_changes: list[OperationalChange] = Field(default_factory=list)
+    candidate_causal_changes: list[OperationalChange] = Field(default_factory=list)
+    causal_changes: list[OperationalChange] = Field(
+        default_factory=list, description="Strictly verified causal changes only"
+    )
     resolution: str | None = None
     classification: IncidentClassification | None = None
     iteration_count: int = 1

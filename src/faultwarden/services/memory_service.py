@@ -260,10 +260,20 @@ class MemoryService:
         duration_sec = max(0.0, (_normalize(resolved_at) - _normalize(started_at)).total_seconds())
 
         # --- 4. Generate Embedding Vector ---
-        causal_change_summary = root_cause.get("causal_change_summary")
-        causal_change_type = root_cause.get("technical_details", {}).get("causal_change_type")
-        if not causal_change_type and incident.causal_changes:
-            causal_change_type = str(incident.causal_changes[0].get("change_type", "UNKNOWN"))
+        # Invariant: causal change context is indexed ONLY when verified in root_cause.causal_change_ids
+        verified_causal_ids = root_cause.get("causal_change_ids", [])
+        if verified_causal_ids:
+            causal_change_summary = root_cause.get("causal_change_summary")
+            causal_change_type = root_cause.get("technical_details", {}).get("causal_change_type")
+            if not causal_change_type and incident.causal_changes:
+                first_causal = incident.causal_changes[0]
+                if isinstance(first_causal, dict):
+                    causal_change_type = str(first_causal.get("change_type", "UNKNOWN"))
+                else:
+                    causal_change_type = str(getattr(first_causal, "change_type", "UNKNOWN"))
+        else:
+            causal_change_summary = None
+            causal_change_type = None
 
         canonical_text = build_canonical_memory_text(
             service=service_name,
