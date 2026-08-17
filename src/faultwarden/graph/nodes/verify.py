@@ -139,6 +139,40 @@ async def verify_hypothesis_node(
             updated_candidate if h.id == best_candidate.id else h for h in updated_hypotheses
         ]
 
+        # Check and verify causal change associations
+        recent_changes = state.get("recent_changes", [])
+        change_map = {ch.id: ch for ch in recent_changes}
+        causal_changes: list[Any] = []
+        causal_change_ids: list[str] = []
+        causal_change_summary: str | None = None
+        selected_causal_change = None
+
+        for cid in updated_candidate.related_change_ids:
+            if cid in change_map:
+                ch = change_map[cid]
+                # Verify that change belongs to affected component
+                if ch.service.lower() == updated_candidate.affected_component.lower():
+                    causal_changes.append(ch)
+                    causal_change_ids.append(ch.id)
+                    if selected_causal_change is None:
+                        selected_causal_change = ch
+
+        if selected_causal_change is not None:
+            config_diffs = []
+            for cfg in selected_causal_change.config_changes:
+                config_diffs.append(f"{cfg.key}: {cfg.old_value} -> {cfg.new_value}")
+            diff_str = f" (Diff: {', '.join(config_diffs)})" if config_diffs else ""
+            causal_change_summary = (
+                f"{selected_causal_change.title} [{selected_causal_change.id}]{diff_str}"
+            )
+
+        factors = [
+            updated_candidate.reasoning_summary or eval_reasoning,
+            f"Evaluation score: {evaluated_confidence:.2f} (threshold: {confidence_threshold})",
+        ]
+        if causal_change_summary:
+            factors.append(f"Correlated causal change: {causal_change_summary}")
+
         now = datetime.now(UTC)
         classification = state.get("classification")
         category_name = classification.category.value if classification is not None else "UNKNOWN"
@@ -148,14 +182,14 @@ async def verify_hypothesis_node(
             summary=f"Root cause verified: {updated_candidate.title}. {updated_candidate.description}",
             root_cause_category=category_name,
             culprit_service=updated_candidate.affected_component,
-            contributing_factors=[
-                updated_candidate.reasoning_summary or eval_reasoning,
-                f"Evaluation score: {evaluated_confidence:.2f} (threshold: {confidence_threshold})",
-            ],
+            contributing_factors=factors,
             supporting_evidence_ids=sanitized_supporting_ids,
+            causal_change_ids=causal_change_ids,
+            causal_change_summary=causal_change_summary,
             technical_details={
                 "verified_in_iteration": iteration,
                 "confidence": evaluated_confidence,
+                "causal_change_ids": causal_change_ids,
             },
             confidence=evaluated_confidence,
             identified_at=now,
@@ -166,12 +200,14 @@ async def verify_hypothesis_node(
             incident_id=incident_id,
             hypothesis_title=updated_candidate.title,
             confidence=evaluated_confidence,
+            causal_changes=causal_change_ids,
             iteration=iteration,
         )
 
         return {
             "hypotheses": updated_hypotheses,
             "selected_hypothesis": updated_candidate,
+            "selected_causal_change": selected_causal_change,
             "root_cause": root_cause,
             "investigation_status": "ROOT_CAUSE_IDENTIFIED",
             "missing_evidence_queries": [],

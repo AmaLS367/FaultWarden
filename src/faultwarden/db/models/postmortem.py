@@ -43,6 +43,8 @@ class IncidentPostmortemModel(Base, TimestampMixin):
     root_cause_category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     contributing_factors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     evidence_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    recent_changes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    causal_change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Remediation & Validation ---
     remediation_summary: Mapped[str] = mapped_column(Text, nullable=False)

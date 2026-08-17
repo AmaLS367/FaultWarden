@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from faultwarden.schemas.change import ChangeCorrelation, OperationalChange
 from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
@@ -74,6 +75,8 @@ class IncidentCreate(IncidentBase):
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
+    recent_changes: list[OperationalChange] = Field(default_factory=list)
+    causal_changes: list[OperationalChange] = Field(default_factory=list)
     resolution: str | None = None
     classification: IncidentClassification | None = None
     iteration_count: int = 1
@@ -95,6 +98,8 @@ class IncidentUpdate(BaseModel):
     hypotheses: list[Hypothesis] | None = None
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] | None = None
+    recent_changes: list[OperationalChange] | list[dict[str, Any]] | None = None
+    causal_changes: list[OperationalChange] | list[dict[str, Any]] | None = None
     resolution: str | None = None
     classification: IncidentClassification | None = None
     iteration_count: int | None = None
@@ -112,6 +117,8 @@ class IncidentRead(IncidentBase):
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     root_cause: RootCauseAnalysis | None = None
     proposed_remediations: list[RemediationProposal] = Field(default_factory=list)
+    recent_changes: list[OperationalChange] = Field(default_factory=list)
+    causal_changes: list[OperationalChange] = Field(default_factory=list)
     resolution: str | None = None
     classification: IncidentClassification | None = None
     iteration_count: int = 1
@@ -136,6 +143,10 @@ class InvestigationDetail(BaseModel):
     root_cause: RootCauseAnalysis | None = None
     remediation_proposals: list[RemediationProposal] = Field(default_factory=list)
     remediation_eligibility: RemediationEligibilityResult | None = None
+    recent_changes: list[OperationalChange] = Field(default_factory=list)
+    change_correlations: list[ChangeCorrelation] = Field(default_factory=list)
+    candidate_causal_changes: list[OperationalChange] = Field(default_factory=list)
+    selected_causal_change: OperationalChange | None = None
     summary: str | None = None
     error_message: str | None = None
     started_at: datetime | None = None

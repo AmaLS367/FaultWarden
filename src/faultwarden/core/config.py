@@ -204,6 +204,36 @@ class MemorySettings(BaseModel):
     )
 
 
+class ChangeSettings(BaseModel):
+    """Change intelligence, Git inspection, and deployment history settings."""
+
+    enabled: bool = Field(
+        default=True, description="Master switch for change collection and correlation"
+    )
+    lookback_minutes: int = Field(
+        default=60, ge=1, description="Lookback window in minutes before incident start"
+    )
+    lookahead_minutes: int = Field(
+        default=5, ge=0, description="Lookahead window in minutes after incident start"
+    )
+    max_recent_changes: int = Field(
+        default=20, ge=1, le=100, description="Maximum number of recent changes to retrieve"
+    )
+    git_repo_path: str = Field(
+        default=".", description="Trusted local repository path for Git provider"
+    )
+    demo_deployments_url: str = Field(
+        default="http://demo-service:8001/deployments",
+        description="Target URL for demo-service deployment history endpoint",
+    )
+    correlation_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum multi-factor relevance score to classify as causal candidate",
+    )
+
+
 # --- Root Application Settings ---
 class Settings(BaseSettings):
     """Root configuration object loading from environment variables."""
@@ -288,6 +318,15 @@ class Settings(BaseSettings):
     memory_embedding_dimensions: int = 384
     memory_embedding_api_key: str = ""
     memory_embedding_base_url: str | None = None
+
+    # --- Change Intelligence ---
+    change_enabled: bool = True
+    change_lookback_minutes: int = 60
+    change_lookahead_minutes: int = 5
+    change_max_recent_changes: int = 20
+    change_git_repo_path: str = "."
+    change_demo_deployments_url: str = "http://demo-service:8001/deployments"
+    change_correlation_threshold: float = 0.6
 
     # --- CORS ---
     cors_origins: str = Field(
@@ -411,6 +450,19 @@ class Settings(BaseSettings):
             embedding_dimensions=self.memory_embedding_dimensions,
             embedding_api_key=self.memory_embedding_api_key,
             embedding_base_url=self.memory_embedding_base_url,
+        )
+
+    @property
+    def change(self) -> ChangeSettings:
+        """Return the grouped change intelligence and provider settings."""
+        return ChangeSettings(
+            enabled=self.change_enabled,
+            lookback_minutes=self.change_lookback_minutes,
+            lookahead_minutes=self.change_lookahead_minutes,
+            max_recent_changes=self.change_max_recent_changes,
+            git_repo_path=self.change_git_repo_path,
+            demo_deployments_url=self.change_demo_deployments_url,
+            correlation_threshold=self.change_correlation_threshold,
         )
 
 

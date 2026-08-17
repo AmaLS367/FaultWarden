@@ -3,9 +3,9 @@
 import operator
 from typing import Annotated, Any, TypedDict
 
+from faultwarden.schemas.change import ChangeCorrelation, OperationalChange
 from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import (
-    DeploymentEvent,
     EvidenceItem,
     LogEntry,
     MetricData,
@@ -34,6 +34,13 @@ def _replace_proposals(
     return new
 
 
+def _replace_changes(
+    _old: list[OperationalChange], new: list[OperationalChange]
+) -> list[OperationalChange]:
+    """Replace recent changes list when collected to prevent duplicate accumulation."""
+    return new
+
+
 class IncidentInvestigationState(TypedDict, total=False):
     """Complete typed state passed across all LangGraph investigation nodes."""
 
@@ -46,12 +53,17 @@ class IncidentInvestigationState(TypedDict, total=False):
     # --- Historical Context (Incident Memory — context only, never evidence) ---
     similar_incidents: list[SimilarIncidentMemory]
 
+    # --- Change Intelligence (context & candidate causal factors — never raw evidence) ---
+    recent_changes: Annotated[list[OperationalChange], _replace_changes]
+    change_correlations: list[ChangeCorrelation]
+    candidate_causal_changes: list[OperationalChange]
+    selected_causal_change: OperationalChange | None
+
     # --- Telemetry & Collected Evidence (appended across steps) ---
     evidence: Annotated[list[EvidenceItem], operator.add]
     metrics: Annotated[list[MetricData], operator.add]
     logs: Annotated[list[LogEntry], operator.add]
     traces: Annotated[list[TraceSpan], operator.add]
-    recent_changes: Annotated[list[DeploymentEvent], operator.add]
 
     # --- Reasoning & Hypotheses ---
     hypotheses: Annotated[list[Hypothesis], _replace_hypotheses]

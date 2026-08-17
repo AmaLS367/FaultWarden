@@ -498,4 +498,37 @@ curl -X POST http://localhost:8000/api/v1/memory/search \
   -d '{"query": "Database connection pool exhausted under spike", "service": "demo-service", "limit": 5}'
 ```
 
+### Change Intelligence (v0.5)
+
+```bash
+# Inspect all operational changes collected in the incident window:
+curl http://localhost:8000/api/v1/incidents/{incident_id}/changes
+
+# Inspect changes identified as causal or contributing factors:
+curl http://localhost:8000/api/v1/incidents/{incident_id}/causal-changes
+```
+
 Reset the environment: `curl -X POST http://localhost:8001/debug/error-mode/false`.
+
+---
+
+## 9. Change Intelligence (v0.5)
+
+FaultWarden v0.5 introduces Change Intelligence to answer the critical SRE question: **"What changed before the incident?"**
+
+### 9.1 Core Invariants & Safety
+
+1. **Strict Causality Invariant**: Temporal proximity alone is *not* proof of causation. A recent deployment or git commit is never assumed to be the root cause unless its parameters, modified files, or configuration diffs semantically align with observed telemetry failure symptoms. If symptom alignment fails, the change's relevance score is strictly capped at `0.35` and `is_causal_candidate` is `False`.
+2. **Read-Only Inspection**: Change providers (`GitChangeProvider`, `DeploymentChangeProvider`) operate purely as read-only queries with strict timeouts, output truncation caps, and zero mutating permissions.
+3. **Deterministic Secret Redaction**: Sensitive configuration values (passwords, tokens, API keys, certificates) are masked to `[REDACTED]` prior to entering prompt contexts or persistent memory.
+
+### 9.2 Correlation Algorithm
+
+Change correlation evaluates each operational change against the incident using a multi-factor scoring function:
+$$\text{Relevance Score} = 0.35 \times \text{Temporal} + 0.45 \times \text{SymptomMatch} + 0.20 \times \text{EvidenceLinks}$$
+
+* **Temporal Score**: Decays linearly based on time elapsed between change and incident start; penalizes changes occurring *after* incident onset (capped at 0.2).
+* **Component Match**: Verifies service name alignment.
+* **Symptom Match**: Token matching against domain symptom keyword clusters (`db_pool`, `timeout`, `memory`, `cpu`, `error_rate`, `concurrency`).
+* **Candidate Threshold**: A change is marked as a candidate causal factor only if:
+  $$\text{Relevance Score} \ge \text{Threshold } (0.60) \land \text{ComponentMatch} \land \text{SymptomMatch} \land \text{Temporal} \ge 0.30$$

@@ -10,6 +10,7 @@ from faultwarden.core.config import get_settings
 from faultwarden.graph.checkpointer import get_checkpointer
 from faultwarden.graph.nodes.classify import classify_incident_node
 from faultwarden.graph.nodes.collect_additional import collect_additional_telemetry_node
+from faultwarden.graph.nodes.collect_changes import collect_recent_changes_node
 from faultwarden.graph.nodes.collect_logs import collect_initial_logs_node
 from faultwarden.graph.nodes.collect_metrics import collect_initial_metrics_node
 from faultwarden.graph.nodes.correlate import correlate_evidence_node
@@ -97,6 +98,7 @@ def build_incident_graph(
     workflow.add_node("collect_initial_metrics", collect_initial_metrics_node)
     workflow.add_node("collect_initial_logs", collect_initial_logs_node)
     workflow.add_node("retrieve_incident_memory", retrieve_incident_memory_node)
+    workflow.add_node("collect_recent_changes", collect_recent_changes_node)
     workflow.add_node("correlate_evidence", correlate_evidence_node)
     workflow.add_node("generate_hypotheses", generate_hypotheses_node)
     workflow.add_node("verify_hypothesis", verify_hypothesis_node)
@@ -113,7 +115,8 @@ def build_incident_graph(
     workflow.add_edge("classify_incident", "collect_initial_metrics")
     workflow.add_edge("collect_initial_metrics", "collect_initial_logs")
     workflow.add_edge("collect_initial_logs", "retrieve_incident_memory")
-    workflow.add_edge("retrieve_incident_memory", "correlate_evidence")
+    workflow.add_edge("retrieve_incident_memory", "collect_recent_changes")
+    workflow.add_edge("collect_recent_changes", "correlate_evidence")
     workflow.add_edge("correlate_evidence", "generate_hypotheses")
     workflow.add_edge("generate_hypotheses", "verify_hypothesis")
 

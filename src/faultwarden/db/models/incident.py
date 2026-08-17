@@ -58,6 +58,8 @@ class IncidentModel(Base, TimestampMixin):
     )
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
     classification: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    recent_changes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    causal_changes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     iteration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     def __repr__(self) -> str:

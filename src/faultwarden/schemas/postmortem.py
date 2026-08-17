@@ -1,6 +1,7 @@
 """Domain schemas for structured incident postmortems."""
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +43,13 @@ class IncidentPostmortem(BaseModel):
         default_factory=list, description="Underlying factors contributing to the incident"
     )
     evidence_summary: str = Field(description="Summary of telemetry evidence confirming root cause")
+    recent_changes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Recent deployments or commits detected around incident onset",
+    )
+    causal_change_summary: str | None = Field(
+        default=None, description="Summary of verified causal deployment/config change"
+    )
     remediation_summary: str = Field(
         description="Factual summary of executed remediation action(s)"
     )

@@ -170,6 +170,16 @@ class IncidentService:
             ).dump_python(update_data.proposed_remediations, mode="json")
         if "classification" in update_dict and update_data.classification is not None:
             update_dict["classification"] = update_data.classification.model_dump(mode="json")
+        if "recent_changes" in update_dict and update_data.recent_changes is not None:
+            update_dict["recent_changes"] = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in update_data.recent_changes
+            ]
+        if "causal_changes" in update_dict and update_data.causal_changes is not None:
+            update_dict["causal_changes"] = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in update_data.causal_changes
+            ]
 
         for field, value in update_dict.items():
             setattr(incident, field, value)

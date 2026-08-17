@@ -50,6 +50,8 @@ class IncidentMemoryModel(Base, TimestampMixin):
     )
     validation_summary: Mapped[str] = mapped_column(Text, nullable=False)
     resolution_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    causal_change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    causal_change_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # --- References & Metrics ---
     postmortem_id: Mapped[UUID | None] = mapped_column(

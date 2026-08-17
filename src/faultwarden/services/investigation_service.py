@@ -21,6 +21,7 @@ from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import get_production_graph
+from faultwarden.integrations.change import ChangeProvider, get_change_provider
 from faultwarden.integrations.embedding.provider import (
     EmbeddingProvider,
     get_embedding_provider,
@@ -74,6 +75,7 @@ class InvestigationService:
         logs_provider: LogsProvider | None = None,
         llm_provider: LLMProvider | None = None,
         embedding_provider: EmbeddingProvider | None = None,
+        change_provider: ChangeProvider | None = None,
         remediation_executor: (
             Callable[[RemediationAction], Awaitable[RemediationResult]] | None
         ) = None,
@@ -86,6 +88,7 @@ class InvestigationService:
         self.logs_provider = logs_provider
         self.llm_provider = llm_provider
         self.embedding_provider = embedding_provider
+        self.change_provider = change_provider
         self.remediation_executor = remediation_executor
         self.remediation_validator = remediation_validator
         self.settings = settings or get_settings()
@@ -98,6 +101,7 @@ class InvestigationService:
         logs = self.logs_provider or LokiClient(settings.loki)
         llm = self.llm_provider or get_llm_provider()
         embedding = self.embedding_provider or get_embedding_provider(settings.memory)
+        change = self.change_provider or get_change_provider(settings.change)
         executor = self.remediation_executor or execute_remediation_action
         validator = self.remediation_validator or check_remediation_recovered
 
@@ -116,6 +120,7 @@ class InvestigationService:
                 "logs_provider": logs,
                 "llm_provider": llm,
                 "embedding_provider": embedding,
+                "change_provider": change,
                 "memory_service": memory_svc,
                 "remediation_executor": executor,
                 "remediation_validator": validator,
@@ -269,6 +274,9 @@ class InvestigationService:
             "logs": [],
             "traces": [],
             "recent_changes": [],
+            "change_correlations": [],
+            "candidate_causal_changes": [],
+            "selected_causal_change": None,
             "hypotheses": [],
             "selected_hypothesis": None,
             "root_cause": None,
@@ -305,6 +313,8 @@ class InvestigationService:
             hypotheses_list = final_state.get("hypotheses", [])
             root_cause_val = final_state.get("root_cause")
             proposals_list = final_state.get("remediation_proposals", [])
+            recent_changes_list = final_state.get("recent_changes", [])
+            candidate_causal_list = final_state.get("candidate_causal_changes", [])
             summary_val = final_state.get("summary", "")
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
@@ -319,6 +329,8 @@ class InvestigationService:
                     hypotheses=hypotheses_list,
                     root_cause=root_cause_val,
                     proposed_remediations=proposals_list,
+                    recent_changes=recent_changes_list,
+                    causal_changes=candidate_causal_list,
                     summary=summary_val or incident.summary,
                     classification=classification_val,
                     iteration_count=iteration_val,
@@ -356,6 +368,8 @@ class InvestigationService:
                 hypotheses=hypotheses_list,
                 root_cause=root_cause_val,
                 proposed_remediations=proposals_list,
+                recent_changes=recent_changes_list,
+                causal_changes=candidate_causal_list,
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,
@@ -494,6 +508,8 @@ class InvestigationService:
             hypotheses_list = final_state.get("hypotheses", [])
             root_cause_val = final_state.get("root_cause")
             proposals_list = final_state.get("remediation_proposals", [])
+            recent_changes_list = final_state.get("recent_changes", [])
+            candidate_causal_list = final_state.get("candidate_causal_changes", [])
             summary_val = final_state.get("summary", "")
             classification_val = final_state.get("classification")
             iteration_val = final_state.get("iteration_count", 1)
@@ -507,6 +523,8 @@ class InvestigationService:
                     hypotheses=hypotheses_list,
                     root_cause=root_cause_val,
                     proposed_remediations=proposals_list,
+                    recent_changes=recent_changes_list,
+                    causal_changes=candidate_causal_list,
                     summary=summary_val or incident.summary,
                     classification=classification_val,
                     iteration_count=iteration_val,
@@ -540,6 +558,8 @@ class InvestigationService:
                 hypotheses=hypotheses_list,
                 root_cause=root_cause_val,
                 proposed_remediations=proposals_list,
+                recent_changes=recent_changes_list,
+                causal_changes=candidate_causal_list,
                 summary=summary_val or incident.summary,
                 classification=classification_val,
                 iteration_count=iteration_val,

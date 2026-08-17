@@ -126,3 +126,13 @@ def get_embedding_provider_from_config(config: RunnableConfig | None) -> Any:
 def get_memory_service_from_config(config: RunnableConfig | None) -> Any:
     """Resolve the MemoryService instance injected via graph config, if provided."""
     return _configurable(config).get("memory_service")
+
+
+def get_change_provider_from_config(config: RunnableConfig | None) -> Any:
+    """Resolve the ChangeProvider injected via graph config, or construct default composite provider."""
+    provider = _configurable(config).get("change_provider")
+    if provider is not None:
+        return provider
+    from faultwarden.integrations.change import get_change_provider
+
+    return get_change_provider(get_settings().change)

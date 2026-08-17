@@ -38,9 +38,10 @@ def build_canonical_memory_text(
     successful_remediation_summary: str,
     validation_summary: str,
     resolution_summary: str,
+    causal_change_summary: str | None = None,
 ) -> str:
     """Deterministically assemble canonical document text used for generating embeddings."""
-    return (
+    base = (
         f"Service: {service}\n"
         f"Classification: {classification}\n"
         f"Severity: {severity}\n"
@@ -51,6 +52,9 @@ def build_canonical_memory_text(
         f"Validation:\n{validation_summary.strip()}\n\n"
         f"Resolution:\n{resolution_summary.strip()}"
     )
+    if causal_change_summary:
+        base += f"\n\nCausal Change:\n{causal_change_summary.strip()}"
+    return base
 
 
 # --- Cosine Similarity Helper for SQLite / Test Fallback ---
@@ -256,6 +260,11 @@ class MemoryService:
         duration_sec = max(0.0, (_normalize(resolved_at) - _normalize(started_at)).total_seconds())
 
         # 4. Generate Embedding Vector
+        causal_change_summary = root_cause.get("causal_change_summary")
+        causal_change_type = root_cause.get("technical_details", {}).get("causal_change_type")
+        if not causal_change_type and incident.causal_changes:
+            causal_change_type = str(incident.causal_changes[0].get("change_type", "UNKNOWN"))
+
         canonical_text = build_canonical_memory_text(
             service=service_name,
             classification=str(classification_cat or "UNKNOWN"),
@@ -266,6 +275,7 @@ class MemoryService:
             successful_remediation_summary=remediation_summary,
             validation_summary=val_summary,
             resolution_summary=resolution_summary,
+            causal_change_summary=causal_change_summary,
         )
 
         embedding_vec: list[float] | None = None
@@ -300,6 +310,8 @@ class MemoryService:
             failed_remediation_summaries=failed_summaries,
             validation_summary=val_summary,
             resolution_summary=resolution_summary,
+            causal_change_summary=causal_change_summary,
+            causal_change_type=causal_change_type,
             postmortem_id=postmortem_id,
             resolved_at=resolved_at,
             incident_duration_seconds=duration_sec,
@@ -398,6 +410,8 @@ class MemoryService:
                             symptoms_summary=memory_obj.symptoms_summary,
                             root_cause_summary=memory_obj.root_cause_summary,
                             root_cause_category=memory_obj.root_cause_category,
+                            causal_change_summary=memory_obj.causal_change_summary,
+                            causal_change_type=memory_obj.causal_change_type,
                             successful_remediation_summary=memory_obj.successful_remediation_summary,
                             successful_action_type=memory_obj.successful_action_type,
                             validation_summary=memory_obj.validation_summary,
@@ -441,6 +455,8 @@ class MemoryService:
                         symptoms_summary=memory_obj.symptoms_summary,
                         root_cause_summary=memory_obj.root_cause_summary,
                         root_cause_category=memory_obj.root_cause_category,
+                        causal_change_summary=memory_obj.causal_change_summary,
+                        causal_change_type=memory_obj.causal_change_type,
                         successful_remediation_summary=memory_obj.successful_remediation_summary,
                         successful_action_type=memory_obj.successful_action_type,
                         validation_summary=memory_obj.validation_summary,

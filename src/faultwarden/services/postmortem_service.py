@@ -108,6 +108,32 @@ class PostmortemService:
         """Assemble deterministic chronological timeline entries from persisted database entities."""
         timeline: list[PostmortemTimelineEntry] = []
 
+        # 0. Recent Deployments and Changes (using real timestamps)
+        recent_changes = incident.recent_changes or []
+        for ch in recent_changes:
+            ch_ts_raw = ch.get("timestamp")
+            if ch_ts_raw:
+                try:
+                    if isinstance(ch_ts_raw, str):
+                        if ch_ts_raw.endswith("Z"):
+                            ch_ts_raw = ch_ts_raw[:-1] + "+00:00"
+                        ch_ts = datetime.fromisoformat(ch_ts_raw)
+                    elif isinstance(ch_ts_raw, datetime):
+                        ch_ts = ch_ts_raw
+                    else:
+                        continue
+                    ch_type = str(ch.get("change_type", "DEPLOYMENT")).upper()
+                    event_type = "DEPLOYMENT_COMPLETED" if ch_type == "DEPLOYMENT" else "GIT_COMMIT"
+                    timeline.append(
+                        PostmortemTimelineEntry(
+                            timestamp=ch_ts,
+                            event_type=event_type,
+                            summary=f"{ch.get('title', 'Change')} [{ch.get('id', '')}] on service '{ch.get('service', incident.service)}'.",
+                        )
+                    )
+                except Exception:
+                    pass
+
         # 1. Alert Fired / StartsAt
         alert_payload = incident.alert_payload or {}
         alerts_list = alert_payload.get("alerts", [])
@@ -371,6 +397,8 @@ class PostmortemService:
         postmortem_id = uuid4()
         now = datetime.now(UTC)
 
+        causal_change_summary = root_cause.get("causal_change_summary")
+
         model = IncidentPostmortemModel(
             id=postmortem_id,
             incident_id=incident.id,
@@ -382,6 +410,8 @@ class PostmortemService:
             root_cause_category=root_cause_category,
             contributing_factors=contributing_factors,
             evidence_summary=evidence_summary,
+            recent_changes=incident.recent_changes or [],
+            causal_change_summary=causal_change_summary,
             remediation_summary=remediation_summary,
             validation_summary=validation_summary,
             resolution_summary=resolution_summary,

@@ -18,6 +18,7 @@ from faultwarden.core.exceptions import (
 )
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.models.job import InvestigationJobModel
+from faultwarden.schemas.change import OperationalChange
 from faultwarden.schemas.classification import IncidentClassification
 from faultwarden.schemas.evidence import EvidenceItem
 from faultwarden.schemas.hypothesis import Hypothesis, HypothesisStatus, RootCauseAnalysis
@@ -75,6 +76,17 @@ def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
         if incident.classification
         else None
     )
+    recent_changes = [OperationalChange.model_validate(c) for c in (incident.recent_changes or [])]
+    candidate_causal_changes = [
+        OperationalChange.model_validate(c) for c in (incident.causal_changes or [])
+    ]
+    selected_causal_change: OperationalChange | None = None
+    if root_cause and root_cause.causal_change_ids:
+        all_known = {c.id: c for c in (recent_changes + candidate_causal_changes)}
+        for cid in root_cause.causal_change_ids:
+            if cid in all_known:
+                selected_causal_change = all_known[cid]
+                break
     return InvestigationDetail(
         incident_id=incident.id,
         status=incident.status,
@@ -87,9 +99,14 @@ def _build_investigation_detail(incident: IncidentModel) -> InvestigationDetail:
         selected_hypothesis=_select_hypothesis(hypotheses, root_cause),
         root_cause=root_cause,
         remediation_proposals=proposals,
+        recent_changes=recent_changes,
+        candidate_causal_changes=candidate_causal_changes,
+        selected_causal_change=selected_causal_change,
         summary=incident.summary,
         started_at=incident.created_at,
-        completed_at=incident.updated_at,
+        completed_at=incident.updated_at
+        if incident.status in [IncidentStatus.RESOLVED, IncidentStatus.FAILED]
+        else None,
     )
 
 
@@ -280,3 +297,40 @@ async def get_similar_incidents(
         min_similarity=min_similarity,
         exclude_incident_id=incident_id,
     )
+
+
+# --- Change Intelligence Routes ---
+@router.get(
+    "/{incident_id}/changes",
+    response_model=list[OperationalChange],
+    summary="Get Recent Incident Changes",
+    description="Retrieve recent deployments, git commits, and config changes correlated with the incident.",
+)
+async def get_incident_changes(
+    incident_id: UUID,
+    incident_service: IncidentService = Depends(get_incident_service),
+) -> list[OperationalChange]:
+    """Fetch recent operational changes associated with an incident."""
+    incident = await incident_service.get_incident(incident_id)
+    return [OperationalChange.model_validate(c) for c in (incident.recent_changes or [])]
+
+
+@router.get(
+    "/{incident_id}/causal-changes",
+    response_model=list[OperationalChange],
+    summary="Get Causal Incident Changes",
+    description="Retrieve verified or candidate causal changes that directly induced the incident.",
+)
+async def get_incident_causal_changes(
+    incident_id: UUID,
+    incident_service: IncidentService = Depends(get_incident_service),
+) -> list[OperationalChange]:
+    """Fetch candidate or verified causal operational changes for an incident."""
+    incident = await incident_service.get_incident(incident_id)
+    causal_changes = [OperationalChange.model_validate(c) for c in (incident.causal_changes or [])]
+    if not causal_changes and incident.root_cause and incident.root_cause.get("causal_change_ids"):
+        # Match causal_change_ids against recent_changes
+        recent = [OperationalChange.model_validate(c) for c in (incident.recent_changes or [])]
+        causal_ids = set(incident.root_cause["causal_change_ids"])
+        causal_changes = [c for c in recent if c.id in causal_ids]
+    return causal_changes

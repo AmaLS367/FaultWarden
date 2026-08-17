@@ -14,13 +14,14 @@
 ## Current Status
 
 > [!NOTE]
-> **v0.3 Milestone — Remediation Engine**: On top of v0.1's detection pipeline and v0.2's
-> LangGraph investigation, FaultWarden now proposes, deterministically classifies, optionally
-> gates behind durable human approval (real LangGraph `interrupt()`/resume backed by PostgreSQL),
-> executes through a tiny set of bounded capabilities, and independently validates whether an
-> incident actually recovered before ever marking it resolved. See
-> [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-remediation-engine-v03) for the full design —
-> trust boundary, policy matrix, approval API, executors, validation semantics, and limits.
+> **v0.5 Milestone — Change Intelligence**: FaultWarden correlates operational failures with recent
+> Git commits, deployments, configuration changes, and release metadata. Using a strict multi-factor
+> scoring engine (temporal decay, component match, symptom cluster alignment), FaultWarden identifies
+> causal changes without false positives (temporal proximity alone is never proof of causation).
+> Causal changes are integrated directly into root-cause verification, postmortems, and pgvector incident memory.
+>
+> **v0.4 Milestone — Incident Memory**: pgvector-backed semantic incident retrieval and factual postmortems.
+> **v0.3 Milestone — Remediation Engine**: Deterministic safety tiers, human approval gates (`interrupt()`), and post-remediation validation.
 
 ---
 

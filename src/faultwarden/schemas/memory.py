@@ -32,6 +32,12 @@ class IncidentMemory(BaseModel):
     )
     validation_summary: str = Field(description="Summary of multi-signal post-remediation recovery")
     resolution_summary: str = Field(description="Final incident resolution statement")
+    causal_change_summary: str | None = Field(
+        default=None, description="Compact summary of verified causal deployment/config change"
+    )
+    causal_change_type: str | None = Field(
+        default=None, description="Causal change category code (e.g. CONFIG_REGRESSION)"
+    )
     postmortem_id: UUID | None = Field(
         default=None, description="Associated postmortem identifier if generated"
     )
@@ -58,6 +64,12 @@ class SimilarIncidentMemory(BaseModel):
     symptoms_summary: str = Field(description="Observed symptoms from the past incident")
     root_cause_summary: str = Field(description="Verified root cause of the past incident")
     root_cause_category: str = Field(description="Root cause category of the past incident")
+    causal_change_summary: str | None = Field(
+        default=None, description="Causal change summary of the past incident"
+    )
+    causal_change_type: str | None = Field(
+        default=None, description="Causal change category of the past incident"
+    )
     successful_remediation_summary: str = Field(
         description="Action that resolved the past incident"
     )

@@ -36,6 +36,10 @@ class Hypothesis(BaseModel):
         default_factory=list,
         description="IDs of historical incidents referenced as background context (never evidence)",
     )
+    related_change_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of candidate OperationalChange records correlated with this hypothesis (never evidence)",
+    )
     verification_queries: list[str] = Field(
         default_factory=list, description="PromQL or LogQL queries needed to test this hypothesis"
     )
@@ -73,6 +77,18 @@ class RootCauseAnalysis(BaseModel):
     culprit_service: str
     contributing_factors: list[str] = Field(default_factory=list)
     supporting_evidence_ids: list[str] = Field(default_factory=list)
+    causal_change_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of verified causal OperationalChange records",
+    )
+    contributing_change_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of contributing OperationalChange records",
+    )
+    causal_change_summary: str | None = Field(
+        default=None,
+        description="Concise summary of the verified causal change/regression",
+    )
     technical_details: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(ge=0.0, le=1.0)
     identified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -99,6 +115,10 @@ class HypothesisCandidate(BaseModel):
     historical_reference_ids: list[str] = Field(
         default_factory=list,
         description="Historical incident IDs referenced as inspiration/context (never current evidence)",
+    )
+    related_change_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of candidate OperationalChanges related to this failure mode",
     )
     missing_evidence_needed: list[str] = Field(
         default_factory=list,
