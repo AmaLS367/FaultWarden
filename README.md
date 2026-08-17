@@ -56,14 +56,18 @@ faultwarden/
 ├── .github/workflows/         # CI/CD pipelines (ci.yml, docker.yml)
 ├── src/
 │   └── faultwarden/
-│       ├── api/               # FastAPI routers: /health, /alerts, /incidents, /incidents/{id}/remediations
+│       ├── api/               # FastAPI routers: /health, /alerts, /incidents, /incidents/{id}/remediations,
+│       │                      #   /incidents/{id}/postmortem, /incidents/{id}/memory, /memory, /changes
 │       ├── core/              # Pydantic Settings, structlog logging, domain exceptions, policy engine
-│       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, ORM models (Incident + Remediation*)
-│       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediation)
+│       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, ORM models (Incident + Remediation*,
+│       │                      #   Postmortem, Memory, InvestigationJob)
+│       ├── schemas/           # Pydantic v2 domain schemas (Incidents, Alerts, Evidence, Hypotheses, Remediation,
+│       │                      #   Postmortem, Memory, Change/Correlation)
 │       ├── graph/             # LangGraph state machine, nodes, checkpointer, and workflow builder
 │       ├── services/          # Business logic layer (IncidentService, AlertService, InvestigationService,
-│       │                      #   RemediationAuditService)
-│       ├── integrations/      # Provider boundaries & protocols (Prometheus, Loki, LLM, remediation executors)
+│       │                      #   RemediationAuditService, PostmortemService, MemoryService, JobWorker)
+│       ├── integrations/      # Provider boundaries & protocols (Prometheus, Loki, LLM, Embedding, Change,
+│       │                      #   remediation executors)
 │       └── telemetry/         # OpenTelemetry setup boundary & Prometheus metrics
 │
 ├── demo_service/              # Breakable demo service with deterministic error simulation (/debug/error-mode)
@@ -199,7 +203,7 @@ With the stack running (`docker compose up -d`), background traffic is automatic
    # confirmed) transitions the incident to RESOLVED
    ```
 
-   See [docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-running-the-demos) for both the Level 1
+   See [docs/ARCHITECTURE.md §10](docs/ARCHITECTURE.md#10-running-the-demos) for both the Level 1
    (auto-executed) and Level 2 (approval-gated) walkthroughs in full, including the rejection path.
 
 6. **Disable error mode and observe recovery**:
@@ -253,7 +257,7 @@ rejections), approval, and execution result is a queryable database row.
 
 See [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-remediation-engine-v03) for the complete
 architecture (trust boundary, policy matrix, approval API, executors, validation semantics) and
-[§8](docs/ARCHITECTURE.md#8-running-the-demos) for runnable Level 1/Level 2 walkthroughs.
+[§10](docs/ARCHITECTURE.md#10-running-the-demos) for runnable Level 1/Level 2 walkthroughs.
 
 ---
 

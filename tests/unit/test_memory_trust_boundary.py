@@ -1,5 +1,5 @@
-"""Unit tests enforcing the Architectural Trust Boundary:
-Historical incidents are CONTEXT, NOT evidence.
+"""Unit tests enforcing the Architectural Trust Boundary: historical incidents are CONTEXT, NOT evidence.
+
 Historical memory must never:
 1. Directly set root_cause
 2. Satisfy supporting_evidence requirements

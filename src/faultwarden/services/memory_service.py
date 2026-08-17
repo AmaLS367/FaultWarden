@@ -146,7 +146,7 @@ class MemoryService:
         """Index a resolved and validated incident as a compact vector memory record."""
         incident_id_str = str(incident.id)
 
-        # 1. Evaluate Quality Policy
+        # --- 1. Evaluate Quality Policy ---
         eligible, reason = await self.is_eligible_for_memory(incident)
         if not eligible:
             logger.warning(
@@ -156,7 +156,7 @@ class MemoryService:
             )
             return None
 
-        # 2. Check Idempotency (prevent duplicate memories)
+        # --- 2. Check Idempotency (prevent duplicate memories) ---
         existing = await self.get_memory_by_incident_id(incident.id)
         if existing is not None:
             logger.info(
@@ -166,7 +166,7 @@ class MemoryService:
             )
             return existing
 
-        # 3. Extract Structured Fields
+        # --- 3. Extract Structured Fields ---
         service_name = incident.service or "unknown"
         classification_dict = incident.classification or {}
         classification_cat = classification_dict.get(
@@ -179,19 +179,19 @@ class MemoryService:
             else str(incident.severity)
         )
 
-        # Symptoms
+        # - Symptoms
         alert_info = incident.alert_payload or {}
         ann = alert_info.get("commonAnnotations", {})
         symptoms = (
             ann.get("summary") or ann.get("description") or incident.summary or incident.title
         )
 
-        # Root Cause
+        # - Root Cause
         root_cause = incident.root_cause or {}
         rc_summary = root_cause.get("summary", "Root cause verified.")
         rc_category = root_cause.get("root_cause_category", "UNKNOWN")
 
-        # Evidence Summary
+        # - Evidence Summary
         evidence_list = incident.evidence or []
         evidence_lines = [
             f"- [{e.get('evidence_type', 'EVIDENCE')}] {e.get('summary', '')}"
@@ -203,7 +203,7 @@ class MemoryService:
             else "Telemetry evidence corroborated the incident."
         )
 
-        # Successful & Failed Remediations
+        # - Successful & Failed Remediations
         act_stmt = (
             select(RemediationActionModel)
             .where(RemediationActionModel.incident_id == incident.id)
@@ -236,7 +236,7 @@ class MemoryService:
 
         failed_summaries = [r.summary for r in results if not r.success]
 
-        # Validation Summary
+        # - Validation Summary
         val_stmt = (
             select(RemediationValidationModel)
             .where(RemediationValidationModel.incident_id == incident.id)
@@ -250,7 +250,7 @@ class MemoryService:
         )
         resolution_summary = incident.resolution or "Incident resolved and verified."
 
-        # Durations
+        # - Durations
         started_at = incident.created_at
         resolved_at = incident.updated_at
 
@@ -259,7 +259,7 @@ class MemoryService:
 
         duration_sec = max(0.0, (_normalize(resolved_at) - _normalize(started_at)).total_seconds())
 
-        # 4. Generate Embedding Vector
+        # --- 4. Generate Embedding Vector ---
         causal_change_summary = root_cause.get("causal_change_summary")
         causal_change_type = root_cause.get("technical_details", {}).get("causal_change_type")
         if not causal_change_type and incident.causal_changes:
@@ -291,7 +291,7 @@ class MemoryService:
             # Embedding generation failed: we do not crash or block resolution
             return None
 
-        # 5. Persist IncidentMemoryModel
+        # --- 5. Persist IncidentMemoryModel ---
         memory_id = uuid4()
         postmortem_id = postmortem.id if postmortem else None
 
@@ -357,7 +357,7 @@ class MemoryService:
             min_similarity=min_sim,
         )
 
-        # 1. Resolve Query Embedding Vector
+        # --- 1. Resolve Query Embedding Vector ---
         query_vec: list[float]
         if isinstance(query, str):
             try:
@@ -372,7 +372,7 @@ class MemoryService:
         else:
             query_vec = query
 
-        # 2. Query Memory Records
+        # --- 2. Query Memory Records ---
         bind = self.session.get_bind()
         dialect_name = bind.dialect.name if bind is not None else "postgresql"
 

@@ -315,7 +315,7 @@ class PostmortemService:
         incident_id_str = str(incident.id)
         logger.info("postmortem_generation_started", incident_id=incident_id_str)
 
-        # Check if postmortem already exists (idempotent)
+        # --- Idempotency Guard ---
         existing = await self.get_postmortem_by_incident_id(incident.id)
         if existing is not None:
             logger.info(
@@ -325,21 +325,18 @@ class PostmortemService:
             )
             return existing
 
-        # Fetch audit history
+        # --- Remediation History & Timeline ---
         proposals, actions, results, validations = await self._fetch_remediation_history(
             incident.id
         )
-
-        # Build factual timeline
         timeline = self._build_factual_timeline(incident, proposals, actions, results, validations)
 
-        # Extract core factual fields
+        # --- Factual Field Extraction ---
         root_cause = incident.root_cause or {}
         root_cause_summary = root_cause.get("summary", "Root cause undetermined.")
         root_cause_category = root_cause.get("root_cause_category", "UNKNOWN")
         contributing_factors = root_cause.get("contributing_factors", [])
 
-        # Summarize evidence
         evidence_list = incident.evidence or []
         evidence_lines = [
             f"- [{e.get('evidence_type', 'EVIDENCE')}] {e.get('summary', '')}"
@@ -351,7 +348,6 @@ class PostmortemService:
             else "Telemetry evidence corroborated the failure mode."
         )
 
-        # Summarize remediation & validation
         successful_results = [r for r in results if r.success]
         remediation_summary = (
             successful_results[0].summary
@@ -376,7 +372,7 @@ class PostmortemService:
             else f"Detected via {incident.source}."
         )
 
-        # Synthesize prose
+        # --- Prose Synthesis ---
         impact_summary, lessons_learned, follow_up_actions = await self._synthesize_prose(
             incident=incident,
             root_cause_summary=root_cause_summary,
@@ -385,7 +381,7 @@ class PostmortemService:
             evidence_summary=evidence_summary,
         )
 
-        # Compute durations
+        # --- Duration Computation & Persistence ---
         started_at = incident.created_at
         resolved_at = incident.updated_at
 

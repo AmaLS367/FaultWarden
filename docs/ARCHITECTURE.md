@@ -34,16 +34,20 @@
 │  - AlertService (Webhook validation & incident mapping)     │
 │  - IncidentService (CRUD & state transitions)               │
 │  - InvestigationService (LangGraph execution & persistence) │
+│  - MemoryService (incident indexing & similarity search)    │
+│  - PostmortemService (structured postmortem generation)     │
 └──────────────┬───────────────────────────────┬──────────────┘
                │                               │
 ┌──────────────▼──────────────┐ ┌──────────────▼──────────────┐
 │      Persistence Layer      │ │      LangGraph Workflow     │
 │  - PostgreSQL / SQLAlchemy2 │ │  - IncidentInvestigationState│
 │  - Alembic Migrations       │ │  - Classify -> Collect ->   │
-│  - IncidentModel +          │ │    Hypothesize -> Verify -> │
-│    Remediation* tables      │ │    Propose -> Policy ->     │
-│  - AsyncPostgresSaver       │ │    [Interrupt?] -> Execute  │
-│    (LangGraph checkpoints)  │ │    -> Validate              │
+│  - IncidentModel +          │ │    Recall Memory -> Collect │
+│    Remediation* tables      │ │    Changes -> Correlate ->  │
+│  - AsyncPostgresSaver       │ │    Hypothesize -> Verify -> │
+│    (LangGraph checkpoints)  │ │    Propose -> Policy ->     │
+│                              │ │    [Interrupt?] -> Execute  │
+│                              │ │    -> Validate              │
 └─────────────────────────────┘ └──────────────┬──────────────┘
                                                │
                                 ┌──────────────▼──────────────┐
@@ -51,6 +55,10 @@
                                 │  - MetricsProvider (PromQL) │
                                 │  - LogsProvider (LogQL)     │
                                 │  - LLMProvider (Reasoning)  │
+                                │  - EmbeddingProvider        │
+                                │    (incident memory vectors)│
+                                │  - ChangeProvider (Git /    │
+                                │    Deployment / Composite)  │
                                 │  - Remediation Executors    │
                                 │    (bounded capabilities)   │
                                 └─────────────────────────────┘
@@ -94,7 +102,14 @@ The investigation graph is compiled using `langgraph.graph.StateGraph` with a st
 [collect_initial_logs]         Queries LogsProvider (Loki) for the incident window.
    │
    ▼
-[correlate_evidence]           Cross-references collected metrics and logs into unified evidence items.
+[retrieve_incident_memory]     Recalls similar historical incidents (§8) as background context —
+   │                            never treated as current evidence.
+   ▼
+[collect_recent_changes]       Queries ChangeProvider (Git/Deployment) for operational changes
+   │                            near the incident window (§9).
+   ▼
+[correlate_evidence]           Cross-references collected metrics, logs, and recent changes into
+   │                            unified evidence items and change-correlation scores.
    │
    ▼
 [generate_hypotheses] ◄──────────────────────────────┐
@@ -438,7 +453,30 @@ otherwise. This is also how a graph resume re-supplies providers — the checkpo
 
 ---
 
-## 9. Running the Demos
+## 9. Change Intelligence (v0.5)
+
+FaultWarden v0.5 introduces Change Intelligence to answer the critical SRE question: **"What changed before the incident?"**
+
+### 9.1 Core Invariants & Safety
+
+1. **Strict Causality Invariant**: Temporal proximity alone is *not* proof of causation. A recent deployment or git commit is never assumed to be the root cause unless its parameters, modified files, or configuration diffs semantically align with observed telemetry failure symptoms. If symptom alignment fails, the change's relevance score is strictly capped at `0.35` and `is_causal_candidate` is `False`.
+2. **Read-Only Inspection**: Change providers (`GitChangeProvider`, `DeploymentChangeProvider`) operate purely as read-only queries with strict timeouts, output truncation caps, and zero mutating permissions.
+3. **Deterministic Secret Redaction**: Sensitive configuration values (passwords, tokens, API keys, certificates) are masked to `[REDACTED]` prior to entering prompt contexts or persistent memory.
+
+### 9.2 Correlation Algorithm
+
+Change correlation evaluates each operational change against the incident using a multi-factor scoring function:
+$$\text{Relevance Score} = 0.35 \times \text{Temporal} + 0.45 \times \text{SymptomMatch} + 0.20 \times \text{EvidenceLinks}$$
+
+* **Temporal Score**: Decays linearly based on time elapsed between change and incident start; penalizes changes occurring *after* incident onset (capped at 0.2).
+* **Component Match**: Verifies service name alignment.
+* **Symptom Match**: Token matching against domain symptom keyword clusters (`db_pool`, `timeout`, `memory`, `cpu`, `error_rate`, `concurrency`).
+* **Candidate Threshold**: A change is marked as a candidate causal factor only if:
+  $$\text{Relevance Score} \ge \text{Threshold } (0.60) \land \text{ComponentMatch} \land \text{SymptomMatch} \land \text{Temporal} \ge 0.30$$
+
+---
+
+## 10. Running the Demos
 
 Both demos below were verified against the real Docker Compose stack (real PostgreSQL + pgvector, real
 `AsyncPostgresSaver` checkpointer, real demo-service HTTP calls) — not just unit tests.
@@ -509,26 +547,3 @@ curl http://localhost:8000/api/v1/incidents/{incident_id}/causal-changes
 ```
 
 Reset the environment: `curl -X POST http://localhost:8001/debug/error-mode/false`.
-
----
-
-## 9. Change Intelligence (v0.5)
-
-FaultWarden v0.5 introduces Change Intelligence to answer the critical SRE question: **"What changed before the incident?"**
-
-### 9.1 Core Invariants & Safety
-
-1. **Strict Causality Invariant**: Temporal proximity alone is *not* proof of causation. A recent deployment or git commit is never assumed to be the root cause unless its parameters, modified files, or configuration diffs semantically align with observed telemetry failure symptoms. If symptom alignment fails, the change's relevance score is strictly capped at `0.35` and `is_causal_candidate` is `False`.
-2. **Read-Only Inspection**: Change providers (`GitChangeProvider`, `DeploymentChangeProvider`) operate purely as read-only queries with strict timeouts, output truncation caps, and zero mutating permissions.
-3. **Deterministic Secret Redaction**: Sensitive configuration values (passwords, tokens, API keys, certificates) are masked to `[REDACTED]` prior to entering prompt contexts or persistent memory.
-
-### 9.2 Correlation Algorithm
-
-Change correlation evaluates each operational change against the incident using a multi-factor scoring function:
-$$\text{Relevance Score} = 0.35 \times \text{Temporal} + 0.45 \times \text{SymptomMatch} + 0.20 \times \text{EvidenceLinks}$$
-
-* **Temporal Score**: Decays linearly based on time elapsed between change and incident start; penalizes changes occurring *after* incident onset (capped at 0.2).
-* **Component Match**: Verifies service name alignment.
-* **Symptom Match**: Token matching against domain symptom keyword clusters (`db_pool`, `timeout`, `memory`, `cpu`, `error_rate`, `concurrency`).
-* **Candidate Threshold**: A change is marked as a candidate causal factor only if:
-  $$\text{Relevance Score} \ge \text{Threshold } (0.60) \land \text{ComponentMatch} \land \text{SymptomMatch} \land \text{Temporal} \ge 0.30$$

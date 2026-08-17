@@ -198,28 +198,28 @@ class InvestigationService:
         )
         primary_policy_result: PolicyResult | None = state_values.get("remediation_policy_result")
 
-        # 1. Persist all generated proposals
+        # --- 1. Persist All Generated Proposals ---
         for prop in proposals:
             prop_uuid = UUID(prop.id) if isinstance(prop.id, str) else prop.id
             existing_proposal = await audit_service.get_proposal(prop_uuid)
             if existing_proposal is None:
                 await audit_service.create_proposal(prop)
 
-        # 2. Persist policy decisions for all evaluated proposals
+        # --- 2. Persist Policy Decisions For All Evaluated Proposals ---
         if all_policy_results:
             for pol_res in all_policy_results:
                 await audit_service.create_action_decision(pol_res)
         elif primary_policy_result is not None:
             await audit_service.create_action_decision(primary_policy_result)
 
-        # 3. Persist execution result if any
+        # --- 3. Persist Execution Result If Any ---
         rem_result = state_values.get("remediation_result")
         if rem_result is not None:
             if isinstance(rem_result, dict):
                 rem_result = RemediationResult.model_validate(rem_result)
             await audit_service.record_execution_result(rem_result)
 
-        # 4. Persist recovery validation result if any
+        # --- 4. Persist Recovery Validation Result If Any ---
         val_result = state_values.get("remediation_validation_result")
         if val_result is not None:
             if isinstance(val_result, dict):

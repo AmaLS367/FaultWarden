@@ -106,20 +106,17 @@ def _assess_symptom_match(
     """Check whether a change's title, diffs, or config keys semantically align with evidence symptoms."""
     change_tokens: set[str] = set()
 
-    # Collect tokens from title and description
     for word in (change.title + " " + (change.description or "")).lower().split():
         clean = word.strip(".,;:()[]{}'\"-_/\\")
         if clean:
             change_tokens.add(clean)
 
-    # Collect tokens from config change keys
     for cfg in change.config_changes:
         for part in cfg.key.lower().replace("_", " ").split():
             change_tokens.add(part)
         if cfg.key.upper() in ("DB_POOL_SIZE", "POOL_SIZE", "MAX_CONNECTIONS"):
             change_tokens.update(["db_pool", "pool", "connection", "database"])
 
-    # Collect tokens from files changed
     for f in change.files_changed:
         for part in f.lower().replace("/", " ").replace(".", " ").split():
             change_tokens.add(part)

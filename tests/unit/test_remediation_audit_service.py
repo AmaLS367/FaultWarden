@@ -477,7 +477,6 @@ async def test_incident_langgraph_thread_id_persistence(db_session: AsyncSession
 
     assert incident.langgraph_thread_id == thread_id
 
-    # Query back
     fetched = await db_session.get(IncidentModel, incident.id)
     assert fetched is not None
     assert fetched.langgraph_thread_id == "thread_investigation_run_42"

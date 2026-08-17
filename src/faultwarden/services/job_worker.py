@@ -119,7 +119,6 @@ class JobWorker:
 
             incident_id = job.incident_id
 
-        # Run the investigation
         logger.info(
             "job_execution_started",
             job_id=str(job_id),
@@ -134,7 +133,6 @@ class JobWorker:
                 settings=self.settings,
                 session_factory=self.session_factory,
             )
-            # Run investigation with the incident ID
             await inv_svc.run_investigation(incident_id)
             success = True
             logger.info("job_execution_succeeded", job_id=str(job_id), incident_id=str(incident_id))
