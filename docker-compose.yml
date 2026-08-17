@@ -52,7 +52,7 @@ services:
       - faultwarden-network
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg18
     container_name: faultwarden-postgres
     ports:
       - "5434:5432"
@@ -61,7 +61,10 @@ services:
       POSTGRES_PASSWORD: faultwarden_secret
       POSTGRES_DB: faultwarden
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PG18+ images store data under a major-version-specific subdirectory
+      # (pg_ctlcluster-style) and require the parent dir as the mount point,
+      # not /var/lib/postgresql/data directly.
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U faultwarden -d faultwarden"]
       interval: 5s
