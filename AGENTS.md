@@ -15,6 +15,7 @@ When modifying this repository, you **MUST** strictly adhere to the rules, bound
 5. **Enforce Remediation Safety Tiers**: Never execute Level 2 actions (rollbacks, database mutations, infrastructure modifications) without explicit operator approval (`AWAITING_APPROVAL` status).
 6. **Temporal proximity is not causation**: Operational changes (deployments, git commits, configuration changes) are evaluated via multi-factor semantic and symptom alignment. Recent timing alone never qualifies a change as causal.
 7. **Causal Promotion is Deterministic**: An operational change may be promoted to a verified causal change (`RootCauseAnalysis.causal_change_ids`) only if it passes all deterministic causal verification gates (`core/causality.py`) against current telemetry.
+8. **Verify before claiming non-existence**: Never claim a library version, GitHub Action (e.g. `actions/checkout`), tool, or external feature does not exist based solely on training cutoff. Always verify via web search before asserting non-existence or attempting to downgrade versions.
 
 ---
 
