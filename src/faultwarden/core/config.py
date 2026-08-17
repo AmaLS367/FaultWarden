@@ -174,6 +174,36 @@ class TelemetrySettings(BaseModel):
     enable_metrics: bool = Field(default=True, description="Enable Prometheus metrics endpoint")
 
 
+class MemorySettings(BaseModel):
+    """Incident memory and similarity retrieval settings."""
+
+    enabled: bool = Field(
+        default=True, description="Master switch for incident memory retrieval & indexing"
+    )
+    top_k: int = Field(
+        default=3, ge=1, le=10, description="Max similar incidents to retrieve into context"
+    )
+    min_similarity: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity threshold for memory matches",
+    )
+    embedding_provider: str = Field(
+        default="openai", description="Embedding provider (e.g. openai, mock)"
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-small", description="Model identifier for generating embeddings"
+    )
+    embedding_dimensions: int = Field(
+        default=384, ge=16, le=3072, description="Vector embedding dimension"
+    )
+    embedding_api_key: str = Field(default="", description="API key for embedding provider")
+    embedding_base_url: str | None = Field(
+        default=None, description="Base URL for OpenAI-compatible embedding API"
+    )
+
+
 # --- Root Application Settings ---
 class Settings(BaseSettings):
     """Root configuration object loading from environment variables."""
@@ -248,6 +278,16 @@ class Settings(BaseSettings):
     otel_service_name: str = "faultwarden"
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     enable_metrics: bool = True
+
+    # --- Memory ---
+    memory_enabled: bool = True
+    memory_top_k: int = 3
+    memory_min_similarity: float = 0.3
+    memory_embedding_provider: str = "openai"
+    memory_embedding_model: str = "text-embedding-3-small"
+    memory_embedding_dimensions: int = 384
+    memory_embedding_api_key: str = ""
+    memory_embedding_base_url: str | None = None
 
     # --- CORS ---
     cors_origins: str = Field(
@@ -357,6 +397,20 @@ class Settings(BaseSettings):
             service_name=self.otel_service_name,
             otlp_endpoint=self.otel_exporter_otlp_endpoint,
             enable_metrics=self.enable_metrics,
+        )
+
+    @property
+    def memory(self) -> MemorySettings:
+        """Return the grouped incident memory and retrieval settings."""
+        return MemorySettings(
+            enabled=self.memory_enabled,
+            top_k=self.memory_top_k,
+            min_similarity=self.memory_min_similarity,
+            embedding_provider=self.memory_embedding_provider,
+            embedding_model=self.memory_embedding_model,
+            embedding_dimensions=self.memory_embedding_dimensions,
+            embedding_api_key=self.memory_embedding_api_key,
+            embedding_base_url=self.memory_embedding_base_url,
         )
 
 

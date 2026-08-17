@@ -397,9 +397,50 @@ otherwise. This is also how a graph resume re-supplies providers — the checkpo
 
 ---
 
-## 8. Running the Demos
+## 8. Incident Memory & Structured Postmortems (v0.4)
 
-Both demos below were verified against the real Docker Compose stack (real PostgreSQL, real
+### 8.1 Architectural Invariants & Trust Boundary
+
+1. **Historical Incidents are Background Context, NEVER Current Telemetry Evidence**:
+   - Historical similarity may suggest plausible candidate explanations or query patterns.
+   - Historical memory cannot directly set `root_cause`, satisfy `supporting_evidence_ids` requirements, increase verified confidence by itself, bypass remediation eligibility gates, or bypass policy evaluation.
+   - All hypotheses must be independently grounded in and verified by *current* telemetry evidence collected for the active incident.
+   - The LLM trust boundary explicitly filters `supporting_evidence_ids` against `state["evidence"]`. Any historical incident ID returned by the model in `supporting_evidence_ids` is stripped and recorded exclusively in `historical_reference_ids`.
+   - The `verify_hypothesis` node strictly enforces that a candidate cannot be verified without valid direct current evidence items.
+
+### 8.2 Vector Memory & Indexing Quality Policy
+
+- **Storage Engine**: PostgreSQL + pgvector extension (`Vector(384)` embeddings).
+  - In unit tests / SQLite fallback, cosine similarity is computed directly in pure Python using canonical vector math without external dependencies.
+- **Deterministic Quality Policy Gate (`is_eligible_for_memory`)**:
+  - An incident is indexed into `incident_memories` if and only if:
+    1. Incident status is strictly `RESOLVED`.
+    2. Incident has at least 1 verified current evidence item.
+    3. Incident has a verified `root_cause` with `confidence >= threshold`.
+    4. Incident has an executed remediation action and a passed post-remediation validation.
+  - Non-resolved, inconclusive, or failed incidents are rejected from long-term memory to prevent poisoning future investigations.
+- **Idempotency**: Indexing the same incident repeatedly returns the existing memory row without duplicating vector records.
+
+### 8.3 Structured Postmortems
+
+- Automatically triggered upon transition to `IncidentStatus.RESOLVED`.
+- Reconstructs a chronological, factual incident timeline from persisted database state:
+  1. Incident detected & alert webhook received.
+  2. Investigation started.
+  3. Telemetry evidence collected (metrics/logs).
+  4. Root cause verified.
+  5. Remediation proposed & policy evaluated.
+  6. Operator approval requested / granted (if Level 2).
+  7. Remediation executed.
+  8. Post-remediation telemetry validated.
+  9. Incident marked resolved.
+- Synthesizes executive summary, root cause explanation, contributing factors, what went well, what went wrong, prevention action items, and lessons learned using structured LLM generation with deterministic heuristic fallback.
+
+---
+
+## 9. Running the Demos
+
+Both demos below were verified against the real Docker Compose stack (real PostgreSQL + pgvector, real
 `AsyncPostgresSaver` checkpointer, real demo-service HTTP calls) — not just unit tests.
 
 ```bash
@@ -423,6 +464,8 @@ curl http://localhost:8000/api/v1/incidents
 # background investigation auto-triggers; poll until status is RESOLVED:
 curl http://localhost:8000/api/v1/incidents/{incident_id}
 curl http://localhost:8000/api/v1/incidents/{incident_id}/remediations   # decision=ALLOWED, result.success=true
+curl http://localhost:8000/api/v1/incidents/{incident_id}/postmortem     # structured postmortem with timeline
+curl http://localhost:8000/api/v1/incidents/{incident_id}/memory         # compact indexed vector memory
 ```
 
 ### Level 2 — human approval required
@@ -441,6 +484,18 @@ curl -X POST http://localhost:8000/api/v1/incidents/{incident_id}/remediations/{
 # Or reject (separate run): result stays null, executor never runs, incident stays active.
 curl -X POST http://localhost:8000/api/v1/incidents/{incident_id}/remediations/{remediation_id}/reject \
   -H "Content-Type: application/json" -d '{"approved_by": "you@example.com"}'
+```
+
+### Incident Memory Search & Similar Incidents
+
+```bash
+# Query similar historical incidents for active incident:
+curl http://localhost:8000/api/v1/incidents/{incident_id}/similar
+
+# Cross-incident semantic search across long-term memory:
+curl -X POST http://localhost:8000/api/v1/memory/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Database connection pool exhausted under spike", "service": "demo-service", "limit": 5}'
 ```
 
 Reset the environment: `curl -X POST http://localhost:8001/debug/error-mode/false`.

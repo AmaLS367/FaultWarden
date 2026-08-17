@@ -112,8 +112,33 @@ async def verify_hypothesis_node(
         return updated, updated_list
 
     # Application code owns the transition policy
-    if is_verified and evaluated_confidence >= confidence_threshold:
+    valid_evidence_ids = {e.id for e in evidence_list}
+    has_valid_supporting_evidence = any(
+        eid in valid_evidence_ids for eid in best_candidate.supporting_evidence_ids
+    )
+
+    # Invariant: A hypothesis CANNOT be verified without at least one direct current evidence item
+    if (
+        is_verified
+        and evaluated_confidence >= confidence_threshold
+        and has_valid_supporting_evidence
+    ):
+        # Filter candidate's supporting evidence strictly against current evidence inventory
+        sanitized_supporting_ids = [
+            eid for eid in best_candidate.supporting_evidence_ids if eid in valid_evidence_ids
+        ]
+        if not sanitized_supporting_ids and valid_evidence_ids:
+            sanitized_supporting_ids = list(valid_evidence_ids)
+
         updated_candidate, updated_hypotheses = _with_updated_candidate(HypothesisStatus.VERIFIED)
+        # Ensure the candidate in state has sanitized supporting evidence IDs
+        updated_candidate = updated_candidate.model_copy(
+            update={"supporting_evidence_ids": sanitized_supporting_ids}
+        )
+        updated_hypotheses = [
+            updated_candidate if h.id == best_candidate.id else h for h in updated_hypotheses
+        ]
+
         now = datetime.now(UTC)
         classification = state.get("classification")
         category_name = classification.category.value if classification is not None else "UNKNOWN"
@@ -127,7 +152,7 @@ async def verify_hypothesis_node(
                 updated_candidate.reasoning_summary or eval_reasoning,
                 f"Evaluation score: {evaluated_confidence:.2f} (threshold: {confidence_threshold})",
             ],
-            supporting_evidence_ids=updated_candidate.supporting_evidence_ids,
+            supporting_evidence_ids=sanitized_supporting_ids,
             technical_details={
                 "verified_in_iteration": iteration,
                 "confidence": evaluated_confidence,

@@ -21,6 +21,10 @@ from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.db.session import get_session_factory
 from faultwarden.graph.builder import get_production_graph
+from faultwarden.integrations.embedding.provider import (
+    EmbeddingProvider,
+    get_embedding_provider,
+)
 from faultwarden.integrations.executors import (
     check_remediation_recovered,
     execute_remediation_action,
@@ -44,6 +48,8 @@ from faultwarden.schemas.remediation import (
     RemediationValidationResult,
 )
 from faultwarden.services.incident_service import IncidentService
+from faultwarden.services.memory_service import MemoryService
+from faultwarden.services.postmortem_service import PostmortemService
 from faultwarden.services.remediation_audit_service import RemediationAuditService
 
 if TYPE_CHECKING:
@@ -67,6 +73,7 @@ class InvestigationService:
         metrics_provider: MetricsProvider | None = None,
         logs_provider: LogsProvider | None = None,
         llm_provider: LLMProvider | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
         remediation_executor: (
             Callable[[RemediationAction], Awaitable[RemediationResult]] | None
         ) = None,
@@ -78,6 +85,7 @@ class InvestigationService:
         self.metrics_provider = metrics_provider
         self.logs_provider = logs_provider
         self.llm_provider = llm_provider
+        self.embedding_provider = embedding_provider
         self.remediation_executor = remediation_executor
         self.remediation_validator = remediation_validator
         self.settings = settings or get_settings()
@@ -89,8 +97,17 @@ class InvestigationService:
         metrics = self.metrics_provider or PrometheusClient(settings.prometheus)
         logs = self.logs_provider or LokiClient(settings.loki)
         llm = self.llm_provider or get_llm_provider()
+        embedding = self.embedding_provider or get_embedding_provider(settings.memory)
         executor = self.remediation_executor or execute_remediation_action
         validator = self.remediation_validator or check_remediation_recovered
+
+        memory_svc = None
+        if self.incident_service is not None:
+            memory_svc = MemoryService(
+                self.incident_service.session,
+                embedding_provider=embedding,
+                settings=settings,
+            )
 
         return {
             "configurable": {
@@ -98,6 +115,8 @@ class InvestigationService:
                 "metrics_provider": metrics,
                 "logs_provider": logs,
                 "llm_provider": llm,
+                "embedding_provider": embedding,
+                "memory_service": memory_svc,
                 "remediation_executor": executor,
                 "remediation_validator": validator,
             }
@@ -346,6 +365,10 @@ class InvestigationService:
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)
             await self.incident_service.session.commit()
 
+            # If the incident was successfully resolved and validated, generate postmortem & index memory
+            if next_status == IncidentStatus.RESOLVED:
+                await self._generate_postmortem_and_memory(updated_incident, final_state)
+
             logger.info(
                 "investigation_run_completed",
                 incident_id=incident_id_str,
@@ -526,6 +549,10 @@ class InvestigationService:
             updated_incident = await self.incident_service.update_incident(incident.id, update_data)
             await self.incident_service.session.commit()
 
+            # If the incident was successfully resolved and validated, generate postmortem & index memory
+            if next_status == IncidentStatus.RESOLVED:
+                await self._generate_postmortem_and_memory(updated_incident, final_state)
+
             logger.info(
                 "remediation_approval_resumed_completed",
                 incident_id=incident_id_str,
@@ -550,6 +577,78 @@ class InvestigationService:
                     error=str(rollback_exc),
                 )
             raise FaultWardenError(f"Investigation resume failed: {exc}") from exc
+
+    # --- Postmortem & Incident Memory Lifecycle ---
+    async def _generate_postmortem_and_memory(
+        self, incident: IncidentModel, final_state: dict[str, Any]
+    ) -> None:
+        """Generate structured postmortem and index incident memory after successful resolution."""
+        if self.incident_service is None:
+            return
+        incident_id_str = str(incident.id)
+        try:
+            similar_incidents = final_state.get("similar_incidents", [])
+            similar_ids = [str(s.incident_id) for s in similar_incidents]
+
+            postmortem_svc = PostmortemService(
+                session=self.incident_service.session,
+                llm_provider=self.llm_provider,
+                settings=self.settings,
+            )
+            postmortem = await postmortem_svc.generate_and_persist_postmortem(
+                incident=incident,
+                similar_incident_ids=similar_ids,
+            )
+
+            embedding = self.embedding_provider or get_embedding_provider(self.settings.memory)
+            memory_svc = MemoryService(
+                session=self.incident_service.session,
+                embedding_provider=embedding,
+                settings=self.settings,
+            )
+            await memory_svc.index_incident_memory(
+                incident=incident,
+                postmortem=postmortem,
+            )
+            await self.incident_service.session.commit()
+        except Exception as exc:
+            logger.warning(
+                "postmortem_or_memory_indexing_failed_non_fatal",
+                incident_id=incident_id_str,
+                error=str(exc),
+            )
+
+    async def generate_postmortem_for_incident(self, incident_id: UUID | str) -> Any:
+        """Generate or retrieve structured postmortem for an incident."""
+        if self.incident_service is None:
+            raise ValueError("InvestigationService requires an active IncidentService.")
+        incident = await self.incident_service.get_incident(incident_id)
+        postmortem_svc = PostmortemService(
+            session=self.incident_service.session,
+            llm_provider=self.llm_provider,
+            settings=self.settings,
+        )
+        return await postmortem_svc.generate_and_persist_postmortem(incident)
+
+    async def index_memory_for_incident(self, incident_id: UUID | str) -> Any:
+        """Index or retrieve memory record for an incident."""
+        if self.incident_service is None:
+            raise ValueError("InvestigationService requires an active IncidentService.")
+        incident = await self.incident_service.get_incident(incident_id)
+        postmortem_svc = PostmortemService(
+            session=self.incident_service.session,
+            llm_provider=self.llm_provider,
+            settings=self.settings,
+        )
+        postmortem = await postmortem_svc.get_postmortem_by_incident_id(incident.id)
+
+        embedding = self.embedding_provider or get_embedding_provider(self.settings.memory)
+        memory_svc = MemoryService(
+            session=self.incident_service.session,
+            embedding_provider=embedding,
+            settings=self.settings,
+        )
+        return await memory_svc.index_incident_memory(incident, postmortem=postmortem)
 
 
 # --- Background Investigation Worker ---

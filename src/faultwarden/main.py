@@ -18,9 +18,11 @@ from faultwarden.core.config import get_settings
 from faultwarden.core.exceptions import (
     ActiveJobConflictError,
     FaultWardenError,
+    IncidentMemoryNotFoundError,
     IncidentNotFoundError,
     InvalidAlertPayloadError,
     InvalidStateTransitionError,
+    PostmortemNotFoundError,
     ProviderError,
     RemediationActionNotFoundError,
     RemediationApprovalStaleError,
@@ -203,6 +205,28 @@ def create_app() -> FastAPI:
         logger.warning(
             "remediation_proposal_not_found", error=exc.message, proposal_id=exc.proposal_id
         )
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Not Found", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(PostmortemNotFoundError)
+    async def postmortem_not_found_handler(
+        _request: Request, exc: PostmortemNotFoundError
+    ) -> JSONResponse:
+        """Map a missing postmortem lookup to a 404 response."""
+        logger.warning("postmortem_not_found", error=exc.message, incident_id=exc.incident_id)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Not Found", "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(IncidentMemoryNotFoundError)
+    async def incident_memory_not_found_handler(
+        _request: Request, exc: IncidentMemoryNotFoundError
+    ) -> JSONResponse:
+        """Map a missing incident memory lookup to a 404 response."""
+        logger.warning("incident_memory_not_found", error=exc.message, incident_id=exc.incident_id)
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"error": "Not Found", "message": exc.message, "details": exc.details},

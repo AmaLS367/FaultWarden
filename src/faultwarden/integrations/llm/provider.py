@@ -286,6 +286,22 @@ class MockLLMProvider(LLMProvider):
             )
             return schema.model_validate(result_rem.model_dump())
 
+        # - Postmortem Synthesis
+        if schema_name == "PostmortemSynthesisResponse":
+            from faultwarden.schemas.postmortem import PostmortemSynthesisResponse
+
+            result_pm = PostmortemSynthesisResponse(
+                impact_summary="Service experienced elevated HTTP 500 error rates and increased response latency.",
+                lessons_learned=[
+                    "Ensure critical telemetry and alerts are continuously monitored and validated."
+                ],
+                follow_up_actions=[
+                    "Increase connection pool size and configure pool timeout alerts.",
+                    "Review error mode safeguards and backoff configurations.",
+                ],
+            )
+            return schema.model_validate(result_pm.model_dump())
+
         # Fallback default instantiation
         try:
             return schema()

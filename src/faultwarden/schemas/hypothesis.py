@@ -32,6 +32,10 @@ class Hypothesis(BaseModel):
     status: HypothesisStatus = Field(default=HypothesisStatus.PROPOSED)
     supporting_evidence_ids: list[str] = Field(default_factory=list)
     refuting_evidence_ids: list[str] = Field(default_factory=list)
+    historical_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs of historical incidents referenced as background context (never evidence)",
+    )
     verification_queries: list[str] = Field(
         default_factory=list, description="PromQL or LogQL queries needed to test this hypothesis"
     )
@@ -85,10 +89,16 @@ class HypothesisCandidate(BaseModel):
         ge=0.0, le=1.0, description="Estimated confidence based solely on available evidence"
     )
     supporting_evidence_ids: list[str] = Field(
-        default_factory=list, description="IDs of evidence items that support this hypothesis"
+        default_factory=list,
+        description="IDs of current evidence items that support this hypothesis",
     )
     refuting_evidence_ids: list[str] = Field(
-        default_factory=list, description="IDs of evidence items that contradict this hypothesis"
+        default_factory=list,
+        description="IDs of current evidence items that contradict this hypothesis",
+    )
+    historical_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Historical incident IDs referenced as inspiration/context (never current evidence)",
     )
     missing_evidence_needed: list[str] = Field(
         default_factory=list,

@@ -64,7 +64,7 @@ services:
       - faultwarden-network
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16-alpine
     container_name: faultwarden-postgres
     ports:
       - "5432:5432"

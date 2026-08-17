@@ -45,6 +45,28 @@ class RemediationProposalNotFoundError(FaultWardenError):
         self.proposal_id = proposal_id
 
 
+class PostmortemNotFoundError(FaultWardenError):
+    """Raised when an incident postmortem does not exist."""
+
+    def __init__(self, incident_id: str) -> None:
+        super().__init__(
+            f"Postmortem for incident '{incident_id}' was not found.",
+            {"incident_id": incident_id},
+        )
+        self.incident_id = incident_id
+
+
+class IncidentMemoryNotFoundError(FaultWardenError):
+    """Raised when an incident memory record does not exist."""
+
+    def __init__(self, incident_id: str) -> None:
+        super().__init__(
+            f"Memory record for incident '{incident_id}' was not found.",
+            {"incident_id": incident_id},
+        )
+        self.incident_id = incident_id
+
+
 class InvalidAlertPayloadError(FaultWardenError):
     """Raised when an incoming alert payload fails validation or parsing."""
 

@@ -31,11 +31,13 @@ async def generate_hypotheses_node(
     incident_id = state.get("incident_id", "unknown")
     evidence_list = state.get("evidence", [])
     classification = state.get("classification")
+    similar_incidents = state.get("similar_incidents", [])
 
     logger.info(
         "node_generate_hypotheses_start",
         incident_id=incident_id,
         evidence_count=len(evidence_list),
+        similar_incidents_count=len(similar_incidents),
         iteration=state.get("iteration_count", 1),
     )
 
@@ -59,16 +61,37 @@ async def generate_hypotheses_node(
         else "Category: UNKNOWN"
     )
 
+    # Format historical reference context (CONTEXT ONLY - NOT CURRENT EVIDENCE)
+    historical_block = ""
+    if similar_incidents:
+        hist_lines = []
+        for idx, sim in enumerate(similar_incidents, start=1):
+            hist_lines.append(
+                f"[{idx}] Historical Incident ID: {sim.incident_id} | Similarity: {sim.similarity:.2f} | "
+                f"Service: {sim.service} | Category: {sim.root_cause_category}\n"
+                f"    Past Symptoms: {sim.symptoms_summary}\n"
+                f"    Past Root Cause: {sim.root_cause_summary}\n"
+                f"    Past Resolution: {sim.successful_remediation_summary}"
+            )
+        historical_block = (
+            "HISTORICAL REFERENCE INCIDENTS (BACKGROUND CONTEXT ONLY — NOT CURRENT EVIDENCE):\n"
+            + "\n".join(hist_lines)
+            + "\n\n"
+        )
+
     prompt = (
         "Analyze the following incident telemetry and generate 1 to 3 plausible root-cause hypotheses.\n\n"
         f"Incident Classification Hint:\n{classification_hint}\n\n"
-        f"Telemetry Evidence:\n{protected_telemetry}\n\n"
+        f"{historical_block}"
+        f"Current Telemetry Evidence:\n{protected_telemetry}\n\n"
         "Guidelines:\n"
-        "1. Every hypothesis MUST be strictly grounded in the telemetry evidence above.\n"
-        "2. Reference exact supporting Evidence IDs in 'supporting_evidence_ids'.\n"
-        "3. Specify what missing PromQL/LogQL queries could confirm or refute the hypothesis.\n"
-        "4. Assign a realistic confidence score between 0.0 and 1.0 (do not hallucinate certainty).\n"
-        "5. Do NOT execute or propose shell commands or code changes here."
+        "1. Every hypothesis MUST be strictly grounded in the Current Telemetry Evidence above.\n"
+        "2. Historical reference incidents are background context ONLY to suggest candidate patterns; they are NOT current evidence.\n"
+        "3. Reference exact current Evidence IDs in 'supporting_evidence_ids'. Do NOT put historical incident IDs in supporting_evidence_ids.\n"
+        "4. If a hypothesis was inspired by a historical reference incident, include that historical incident ID in 'historical_reference_ids'.\n"
+        "5. Specify what missing PromQL/LogQL queries could confirm or refute the hypothesis.\n"
+        "6. Assign a realistic confidence score between 0.0 and 1.0 (do not hallucinate certainty).\n"
+        "7. Do NOT execute or propose shell commands or code changes here."
     )
 
     system_prompt = (
@@ -89,10 +112,21 @@ async def generate_hypotheses_node(
         )
 
         all_valid_ids = set(evidence_id_map.keys())
+        all_historical_ids = {str(sim.incident_id) for sim in similar_incidents}
 
         for cand in response.hypotheses:
-            # Filter referenced IDs to ensure they truly exist in our evidence inventory
+            # Deterministic trust boundary guard: filter supporting_evidence_ids strictly against current evidence
             valid_supporting = [eid for eid in cand.supporting_evidence_ids if eid in all_valid_ids]
+
+            # Separate and preserve historical reference IDs
+            valid_historical_refs = [
+                hid for hid in cand.historical_reference_ids if hid in all_historical_ids
+            ]
+            # If the model placed a historical ID into supporting_evidence_ids, migrate it to historical_reference_ids
+            for eid in cand.supporting_evidence_ids:
+                if eid in all_historical_ids and eid not in valid_historical_refs:
+                    valid_historical_refs.append(eid)
+
             # If model didn't fill in supporting IDs, associate all matching evidence by default
             if not valid_supporting and all_valid_ids:
                 valid_supporting = list(all_valid_ids)
@@ -109,6 +143,7 @@ async def generate_hypotheses_node(
                     refuting_evidence_ids=[
                         eid for eid in cand.refuting_evidence_ids if eid in all_valid_ids
                     ],
+                    historical_reference_ids=valid_historical_refs,
                     verification_queries=[],
                     missing_evidence_needed=cand.missing_evidence_needed,
                     reasoning_summary=cand.reasoning_summary,
@@ -127,6 +162,7 @@ async def generate_hypotheses_node(
     if not hypotheses:
         service_name = resolve_service_from_state(state, default="demo-service")
         evidence_ids = [e.id for e in evidence_list]
+        top_hist_ids = [str(similar_incidents[0].incident_id)] if similar_incidents else []
 
         has_pool_error = any(
             "pool exhausted" in e.summary.lower() or "db_pool" in e.summary.lower()
@@ -143,6 +179,7 @@ async def generate_hypotheses_node(
                     confidence_score=0.85,
                     status=HypothesisStatus.PROPOSED,
                     supporting_evidence_ids=evidence_ids,
+                    historical_reference_ids=top_hist_ids,
                     reasoning_summary="Error logs explicitly indicate connection pool exhaustion during transactions.",
                     created_at=now,
                 )
@@ -157,6 +194,7 @@ async def generate_hypotheses_node(
                     confidence_score=0.75,
                     status=HypothesisStatus.PROPOSED,
                     supporting_evidence_ids=evidence_ids,
+                    historical_reference_ids=top_hist_ids,
                     reasoning_summary="Metrics show non-zero 5xx error rate on HTTP endpoints.",
                     created_at=now,
                 )
@@ -167,6 +205,7 @@ async def generate_hypotheses_node(
         incident_id=incident_id,
         count=len(hypotheses),
         top_title=hypotheses[0].title if hypotheses else None,
+        top_historical_refs=hypotheses[0].historical_reference_ids if hypotheses else [],
     )
 
     return {

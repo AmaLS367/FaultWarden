@@ -111,3 +111,18 @@ def get_remediation_validator_from_config(
         return await RecoveryValidator(metrics_provider=metrics).validate_recovery(action)
 
     return _default_validator
+
+
+def get_embedding_provider_from_config(config: RunnableConfig | None) -> Any:
+    """Resolve the EmbeddingProvider injected via graph config, or construct the default provider."""
+    provider = _configurable(config).get("embedding_provider")
+    if provider is not None:
+        return provider
+    from faultwarden.integrations.embedding.provider import get_embedding_provider
+
+    return get_embedding_provider(get_settings().memory)
+
+
+def get_memory_service_from_config(config: RunnableConfig | None) -> Any:
+    """Resolve the MemoryService instance injected via graph config, if provided."""
+    return _configurable(config).get("memory_service")

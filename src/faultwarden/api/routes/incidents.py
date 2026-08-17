@@ -5,8 +5,17 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import TypeAdapter
 from sqlalchemy import select
 
-from faultwarden.api.dependencies import get_incident_service, get_investigation_service
-from faultwarden.core.exceptions import ActiveJobConflictError
+from faultwarden.api.dependencies import (
+    get_incident_service,
+    get_investigation_service,
+    get_memory_service,
+    get_postmortem_service,
+)
+from faultwarden.core.exceptions import (
+    ActiveJobConflictError,
+    IncidentMemoryNotFoundError,
+    PostmortemNotFoundError,
+)
 from faultwarden.db.models.incident import IncidentModel
 from faultwarden.db.models.job import InvestigationJobModel
 from faultwarden.schemas.classification import IncidentClassification
@@ -21,9 +30,13 @@ from faultwarden.schemas.incident import (
     InvestigationDetail,
 )
 from faultwarden.schemas.job import InvestigationJobStatus
+from faultwarden.schemas.memory import IncidentMemory, SimilarIncidentMemory
+from faultwarden.schemas.postmortem import IncidentPostmortem
 from faultwarden.schemas.remediation import RemediationProposal
 from faultwarden.services.incident_service import IncidentService
 from faultwarden.services.investigation_service import InvestigationService
+from faultwarden.services.memory_service import MemoryService
+from faultwarden.services.postmortem_service import PostmortemService
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
@@ -192,3 +205,78 @@ async def investigate_incident(
 
     updated_incident = await investigation_service.run_investigation(incident_id)
     return _build_investigation_detail(updated_incident)
+
+
+# --- Postmortem & Incident Memory Routes ---
+@router.get(
+    "/{incident_id}/postmortem",
+    response_model=IncidentPostmortem,
+    summary="Get Incident Postmortem",
+    description="Retrieve the generated postmortem analysis for a resolved incident.",
+)
+async def get_incident_postmortem(
+    incident_id: UUID,
+    postmortem_service: PostmortemService = Depends(get_postmortem_service),
+) -> IncidentPostmortem:
+    """Fetch structured postmortem for an incident."""
+    postmortem_model = await postmortem_service.get_postmortem_by_incident_id(incident_id)
+    if postmortem_model is None:
+        raise PostmortemNotFoundError(incident_id=str(incident_id))
+    return IncidentPostmortem.model_validate(postmortem_model)
+
+
+@router.get(
+    "/{incident_id}/memory",
+    response_model=IncidentMemory,
+    summary="Get Incident Memory",
+    description="Retrieve the compact vector memory record for an incident.",
+)
+async def get_incident_memory(
+    incident_id: UUID,
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> IncidentMemory:
+    """Fetch compact memory record for an incident."""
+    memory_model = await memory_service.get_memory_by_incident_id(incident_id)
+    if memory_model is None:
+        raise IncidentMemoryNotFoundError(incident_id=str(incident_id))
+    return IncidentMemory.model_validate(memory_model)
+
+
+@router.get(
+    "/{incident_id}/similar",
+    response_model=list[SimilarIncidentMemory],
+    summary="Find Similar Incidents",
+    description="Retrieve historically similar resolved incidents based on the current incident's context.",
+)
+async def get_similar_incidents(
+    incident_id: UUID,
+    limit: int = Query(
+        5, ge=1, le=20, description="Maximum number of similar incidents to return."
+    ),
+    min_similarity: float = Query(
+        0.3, ge=0.0, le=1.0, description="Minimum cosine similarity threshold."
+    ),
+    incident_service: IncidentService = Depends(get_incident_service),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> list[SimilarIncidentMemory]:
+    """Find historically similar resolved incidents for a given incident."""
+    incident = await incident_service.get_incident(incident_id)
+    alert_info = incident.alert_payload or {}
+    ann = alert_info.get("commonAnnotations", {})
+    symptoms = ann.get("summary") or ann.get("description") or incident.summary or incident.title
+    category = "UNKNOWN"
+    if incident.classification and isinstance(incident.classification, dict):
+        category = incident.classification.get("category", "UNKNOWN")
+
+    query = (
+        f"Service: {incident.service or 'unknown'}\n"
+        f"Classification: {category}\n"
+        f"Symptoms: {symptoms}"
+    )
+    return await memory_service.search_similar(
+        query=query,
+        service=None,
+        limit=limit,
+        min_similarity=min_similarity,
+        exclude_incident_id=incident_id,
+    )

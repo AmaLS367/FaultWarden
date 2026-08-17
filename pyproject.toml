@@ -26,6 +26,7 @@ dependencies = [
     "opentelemetry-api>=1.26.0",
     "opentelemetry-sdk>=1.26.0",
     "structlog>=24.4.0",
+    "pgvector>=0.3.0",
 ]
 
 [project.optional-dependencies]

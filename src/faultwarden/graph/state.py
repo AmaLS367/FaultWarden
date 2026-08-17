@@ -12,6 +12,7 @@ from faultwarden.schemas.evidence import (
     TraceSpan,
 )
 from faultwarden.schemas.hypothesis import Hypothesis, RootCauseAnalysis
+from faultwarden.schemas.memory import SimilarIncidentMemory
 from faultwarden.schemas.remediation import (
     PolicyResult,
     RemediationEligibilityResult,
@@ -41,6 +42,9 @@ class IncidentInvestigationState(TypedDict, total=False):
     incident_context: dict[str, Any]
     alert: dict[str, Any]
     classification: IncidentClassification | None
+
+    # --- Historical Context (Incident Memory — context only, never evidence) ---
+    similar_incidents: list[SimilarIncidentMemory]
 
     # --- Telemetry & Collected Evidence (appended across steps) ---
     evidence: Annotated[list[EvidenceItem], operator.add]
