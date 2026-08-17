@@ -1,7 +1,7 @@
 """add candidate_causal_changes column to incidents table
 
-Revision ID: 008_add_candidate_causal_changes_column
-Revises: 007_add_change_intelligence_fields
+Revision ID: 008_candidate_causal_changes
+Revises: 007_change_intel_fields
 Create Date: 2026-08-17 18:00:00.000000
 
 """
@@ -12,8 +12,10 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "008_add_candidate_causal_changes_column"
-down_revision: str | None = "007_add_change_intelligence_fields"
+# Kept short: alembic_version.version_num is VARCHAR(32) and cannot fit the
+# full descriptive slug.
+revision: str = "008_candidate_causal_changes"
+down_revision: str | None = "007_change_intel_fields"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

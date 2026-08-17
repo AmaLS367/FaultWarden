@@ -1,24 +1,40 @@
 """Pytest configuration and test fixtures."""
 
-from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
-from typing import Any
+import os
 
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import (
+# Force hermetic provider settings before any faultwarden module is imported.
+# Settings loads a repo-root .env (meant for local Docker/dev config) via
+# pydantic-settings; a real LLM/embedding API key there would otherwise make
+# the whole suite call out to a real, non-deterministic, paid provider instead
+# of the deterministic Mock providers these tests are written against.
+# Environment variables take precedence over .env file values, so this wins.
+os.environ["FAULTWARDEN_LLM_PROVIDER"] = "mock"
+os.environ["FAULTWARDEN_LLM_API_KEY"] = ""
+os.environ["FAULTWARDEN_MEMORY_EMBEDDING_PROVIDER"] = "mock"
+os.environ["FAULTWARDEN_MEMORY_EMBEDDING_API_KEY"] = ""
+
+from collections.abc import AsyncGenerator  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+from typing import Any  # noqa: E402
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-from faultwarden.api.dependencies import get_db
-from faultwarden.db.base import Base
-from faultwarden.graph.builder import reset_production_graph
-from faultwarden.graph.checkpointer import set_checkpointer
-from faultwarden.main import app
+from faultwarden.api.dependencies import get_db  # noqa: E402
+from faultwarden.core.config import get_settings  # noqa: E402
+from faultwarden.db.base import Base  # noqa: E402
+from faultwarden.graph.builder import reset_production_graph  # noqa: E402
+from faultwarden.graph.checkpointer import set_checkpointer  # noqa: E402
+from faultwarden.main import app  # noqa: E402
+
+get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

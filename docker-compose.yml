@@ -5,21 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: faultwarden
     ports:
-      - "8000:8000"
-    environment:
-      - FAULTWARDEN_HOST=0.0.0.0
-      - FAULTWARDEN_PORT=8000
-      - FAULTWARDEN_ENV=development
-      - FAULTWARDEN_DEBUG=true
-      - FAULTWARDEN_DB_HOST=postgres
-      - FAULTWARDEN_DB_PORT=5432
-      - FAULTWARDEN_DB_USER=faultwarden
-      - FAULTWARDEN_DB_PASSWORD=faultwarden_secret
-      - FAULTWARDEN_DB_NAME=faultwarden
-      - FAULTWARDEN_PROMETHEUS_URL=http://prometheus:9090
-      - FAULTWARDEN_LOKI_URL=http://loki:3100
-      - FAULTWARDEN_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - FAULTWARDEN_REMEDIATION_DEMO_SERVICE_URL=http://demo-service:8001
+      - "8010:8000"
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,10 +52,10 @@ services:
       - faultwarden-network
 
   postgres:
-    image: pgvector/pgvector:pg16-alpine
+    image: pgvector/pgvector:pg16
     container_name: faultwarden-postgres
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_USER: faultwarden
       POSTGRES_PASSWORD: faultwarden_secret
@@ -115,6 +103,10 @@ services:
   loki:
     image: grafana/loki:3.0.0
     container_name: faultwarden-loki
+    # Loki's default image user (10001) cannot write into a freshly-created
+    # named volume, which is created root-owned by the Docker Engine — every
+    # startup crash-loops with "mkdir /tmp/loki/rules: permission denied".
+    user: "0:0"
     ports:
       - "3100:3100"
     volumes:

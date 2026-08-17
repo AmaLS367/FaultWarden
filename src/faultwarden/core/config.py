@@ -82,6 +82,7 @@ class LLMSettings(BaseModel):
     )
     temperature: float = Field(default=0.1, description="Sampling temperature")
     max_tokens: int = Field(default=4096, description="Max response tokens")
+    timeout_seconds: float = Field(default=60.0, description="HTTP request timeout in seconds")
 
 
 class InvestigationSettings(BaseModel):
@@ -279,6 +280,7 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
+    llm_timeout_seconds: float = 60.0
 
     # --- Investigation ---
     investigation_max_iterations: int = 3
@@ -395,6 +397,7 @@ class Settings(BaseSettings):
             base_url=self.llm_base_url,
             temperature=self.llm_temperature,
             max_tokens=self.llm_max_tokens,
+            timeout_seconds=self.llm_timeout_seconds,
         )
 
     @property

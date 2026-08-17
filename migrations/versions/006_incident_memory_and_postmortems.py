@@ -1,6 +1,6 @@
 """add incident_postmortems and incident_memories with pgvector support
 
-Revision ID: 006_incident_memory_and_postmortems
+Revision ID: 006_incident_memory
 Revises: 005_remediation_hardening
 Create Date: 2026-08-17 12:00:00.000000
 
@@ -15,7 +15,9 @@ from pgvector.sqlalchemy import Vector
 from faultwarden.db.base import GUID
 
 # revision identifiers, used by Alembic.
-revision: str = "006_incident_memory_and_postmortems"
+# Kept short: alembic_version.version_num is VARCHAR(32) and cannot fit the
+# full descriptive slug.
+revision: str = "006_incident_memory"
 down_revision: str | None = "005_remediation_hardening"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

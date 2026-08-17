@@ -59,6 +59,7 @@ class OpenAILLMProvider(LLMProvider):
         self._base_url = (self._settings.base_url or "https://api.openai.com/v1").rstrip("/")
         self._temperature = self._settings.temperature
         self._max_tokens = self._settings.max_tokens
+        self._timeout = self._settings.timeout_seconds
 
     async def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
         """Send chat completion request and return raw text response."""
@@ -79,7 +80,7 @@ class OpenAILLMProvider(LLMProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
                     f"{self._base_url}/chat/completions",
                     headers=headers,
@@ -91,7 +92,9 @@ class OpenAILLMProvider(LLMProvider):
                 content = data["choices"][0]["message"]["content"]
                 return str(content)
         except httpx.RequestError as exc:
-            raise LLMError(f"Connection to LLM provider failed: {exc}") from exc
+            raise LLMError(
+                f"Connection to LLM provider failed: {exc or repr(exc)}"
+            ) from exc
 
     async def generate_structured(
         self,

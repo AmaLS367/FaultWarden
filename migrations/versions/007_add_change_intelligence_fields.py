@@ -1,7 +1,7 @@
 """add change intelligence fields to incidents, incident_postmortems, and incident_memories
 
-Revision ID: 007_add_change_intelligence_fields
-Revises: 006_incident_memory_and_postmortems
+Revision ID: 007_change_intel_fields
+Revises: 006_incident_memory
 Create Date: 2026-08-17 14:00:00.000000
 
 """
@@ -12,8 +12,10 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "007_add_change_intelligence_fields"
-down_revision: str | None = "006_incident_memory_and_postmortems"
+# Kept short: alembic_version.version_num is VARCHAR(32) and cannot fit the
+# full descriptive slug.
+revision: str = "007_change_intel_fields"
+down_revision: str | None = "006_incident_memory"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
