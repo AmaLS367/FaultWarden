@@ -5,6 +5,8 @@ on:
     branches: [main, master]
     paths:
       - "Dockerfile"
+      - ".dockerignore"
+      - "docker-entrypoint.sh"
       - "demo_service/**"
       - "docker-compose.yml"
       - "src/**"
@@ -17,6 +19,8 @@ on:
     branches: [main, master]
     paths:
       - "Dockerfile"
+      - ".dockerignore"
+      - "docker-entrypoint.sh"
       - "demo_service/**"
       - "docker-compose.yml"
       - "src/**"
