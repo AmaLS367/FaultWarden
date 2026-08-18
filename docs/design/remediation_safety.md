@@ -93,7 +93,7 @@ Executors map strictly to typed capabilities:
 
 ```python
 DemoServiceExecutor.reset_failure_mode(action)  # POST /debug/error-mode/false
-RegisteredServiceExecutor.restart(action)       # Simulated capability
+RegisteredServiceExecutor.restart(action)  # Simulated capability
 ```
 
 * **Zero Shell Execution**: No `subprocess.Popen`, no `/bin/sh`, no Docker socket binding.

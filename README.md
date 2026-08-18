@@ -86,8 +86,10 @@ faultwarden/
 ├── migrations/                # Alembic async database migrations
 ├── tests/                     # Unit and integration test suite (pytest + pytest-asyncio)
 ├── docs/                      # Technical documentation & community guidelines
-│   ├── design/                # ARCHITECTURE.md (Deep dive into safety models and graph flow)
-│   └── community/             # CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md
+│   ├── design/                # System architecture, workflows, safety models & demos
+│   ├── CONTRIBUTING.md        # Contribution guidelines & coding conventions
+│   ├── CODE_OF_CONDUCT.md     # Community code of conduct
+│   └── SECURITY.md            # Security policy & supported versions
 ├── docker-compose.yml         # 9-service local development stack
 ├── Dockerfile                 # Multi-stage production container build (non-root UID 10001)
 ├── docker-entrypoint.sh       # Container entrypoint with automated migration runner
@@ -283,9 +285,9 @@ architecture (trust boundary, policy matrix, approval API, executors, validation
 
 ## Community & Security
 
-* **Contributing Guidelines**: [docs/community/CONTRIBUTING.md](docs/community/CONTRIBUTING.md)
-* **Code of Conduct**: [docs/community/CODE_OF_CONDUCT.md](docs/community/CODE_OF_CONDUCT.md)
-* **Security Policy**: [docs/community/SECURITY.md](docs/community/SECURITY.md)
+* **Contributing Guidelines**: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
+* **Code of Conduct**: [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)
+* **Security Policy**: [docs/SECURITY.md](docs/SECURITY.md)
 
 ---
 

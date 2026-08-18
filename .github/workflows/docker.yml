@@ -39,6 +39,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Create .env from .env.example
+        run: cp .env.example .env
+
       - name: Verify docker-compose configuration
         run: docker compose config --quiet
 

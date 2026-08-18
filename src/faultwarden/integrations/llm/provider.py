@@ -92,9 +92,7 @@ class OpenAILLMProvider(LLMProvider):
                 content = data["choices"][0]["message"]["content"]
                 return str(content)
         except httpx.RequestError as exc:
-            raise LLMError(
-                f"Connection to LLM provider failed: {exc or repr(exc)}"
-            ) from exc
+            raise LLMError(f"Connection to LLM provider failed: {exc or repr(exc)}") from exc
 
     async def generate_structured(
         self,
