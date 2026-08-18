@@ -29,26 +29,32 @@
 
 ---
 
-## v0.1 Target Milestone
+## Autonomous Incident Lifecycle
 
-The immediate end-to-end milestone target is:
+The complete end-to-end incident response flow orchestrated by FaultWarden:
 
 ```text
-Broken FastAPI demo service (error injection)
+Broken microservice (error injection)
               ↓
-Prometheus detects elevated 5xx rate
+Prometheus detects elevated 5xx rate & fires alert
               ↓
 Alertmanager sends webhook to FaultWarden
               ↓
 FaultWarden creates Incident (state: DETECTED)
               ↓
-LangGraph investigation workflow starts
+LangGraph autonomous investigation begins:
+  • Metrics & Logs collection (Prometheus / Loki)
+  • Memory Recall (pgvector similarity search)
+  • Change Intelligence (Git commits, deployments, configs)
+  • Deterministic Causal Verification Gates
               ↓
-Collects metrics, logs, and telemetry context
+Hypothesis verified & Root Cause identified
               ↓
-Generates and verifies root-cause hypothesis
+Deterministic Remediation Policy & Safety Tiers:
+  • Level 1: Autonomous execution + validation
+  • Level 2: Human approval gate via interrupt()
               ↓
-Produces tier-classified remediation proposal
+Incident marked RESOLVED → Postmortem & Incident Memory persisted
 ```
 
 ---
@@ -61,7 +67,8 @@ faultwarden/
 ├── src/
 │   └── faultwarden/
 │       ├── api/               # FastAPI routers: /health, /alerts, /incidents, /incidents/{id}/remediations,
-│       │                      #   /incidents/{id}/postmortem, /incidents/{id}/memory, /memory, /changes, /causal-changes
+│       │                      #   /incidents/{id}/postmortem, /incidents/{id}/memory, /memory, /incidents/{id}/changes,
+│       │                      #   /incidents/{id}/causal-changes
 │       ├── core/              # Pydantic Settings, structlog logging, domain exceptions, policy & causality engines
 │       ├── db/                # SQLAlchemy 2 async engine, sessionmaker, ORM models (Incident + Remediation*,
 │       │                      #   Postmortem, Memory, InvestigationJob)
@@ -78,9 +85,13 @@ faultwarden/
 ├── observability/             # Configs for Prometheus, Alertmanager, Loki, Grafana, OpenTelemetry Collector
 ├── migrations/                # Alembic async database migrations
 ├── tests/                     # Unit and integration test suite (pytest + pytest-asyncio)
-├── docs/                      # ARCHITECTURE.md (Deep dive into safety models and graph flow)
+├── docs/                      # Technical documentation & community guidelines
+│   ├── design/                # ARCHITECTURE.md (Deep dive into safety models and graph flow)
+│   └── community/             # CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md
 ├── docker-compose.yml         # 9-service local development stack
-├── Dockerfile                 # Multi-stage production container build
+├── Dockerfile                 # Multi-stage production container build (non-root UID 10001)
+├── docker-entrypoint.sh       # Container entrypoint with automated migration runner
+├── .dockerignore              # Build context exclusion filter
 ├── pyproject.toml             # Dependencies and strict tool configuration (Ruff, Mypy, Pytest)
 ├── LICENSE                    # Apache 2.0 License
 └── AGENTS.md                  # Development guidelines for AI coding agents
@@ -136,24 +147,28 @@ docker compose up -d --build
 ```
 
 ### Service Map
-
+ 
 | Service                           | URL / Port                | Description                               |
 | :-------------------------------- | :------------------------ | :---------------------------------------- |
-| **FaultWarden API**         | `http://localhost:8000` | Incident response orchestrator            |
-| **Demo Service**            | `http://localhost:8001` | Breakable sample microservice             |
-| **Traffic Generator**       | *(internal)*              | Automatic background traffic loop (1 req/s)|
-| **Prometheus**              | `http://localhost:9090` | Metrics collection and alerting           |
-| **Alertmanager**            | `http://localhost:9093` | Alert grouping and webhook routing        |
-| **Loki**                    | `http://localhost:3100` | Log stream ingestion                      |
-| **Grafana**                 | `http://localhost:3000` | Visual dashboards (`admin` / `admin`) |
-| **OpenTelemetry Collector** | `http://localhost:4317` | OTLP gRPC telemetry endpoint              |
-| **PostgreSQL**              | `localhost:5432`        | Incident storage database                 |
+| **FaultWarden API**               | `http://localhost:8010` (Docker) / `http://localhost:8000` (Local) | Incident response orchestrator |
+| **Demo Service**                  | `http://localhost:8001`   | Breakable sample microservice             |
+| **Traffic Generator**             | *(internal)*              | Automatic background traffic loop (1 req/s)|
+| **Prometheus**                    | `http://localhost:9090`   | Metrics collection and alerting           |
+| **Alertmanager**                  | `http://localhost:9093`   | Alert grouping and webhook routing        |
+| **Loki**                          | `http://localhost:3100`   | Log stream ingestion                      |
+| **Grafana**                       | `http://localhost:3000`   | Visual dashboards (`admin` / `admin`)     |
+| **OpenTelemetry Collector**       | `http://localhost:4317`   | OTLP gRPC telemetry endpoint              |
+| **PostgreSQL**                    | `localhost:5434` (Docker) / `localhost:5432` | Incident storage database |
 
 ---
 
 ## End-to-End Demo Procedure
 
 With the stack running (`docker compose up -d`), background traffic is automatically generated against `demo-service`.
+
+> [!TIP]
+> When running the stack with Docker Compose, FaultWarden API is exposed on port **`8010`** on the host.
+> (If running standalone via `uvicorn ... --port 8000`, use port **`8000`**).
 
 1. **Check initial state (Healthy)**:
 
@@ -178,7 +193,7 @@ With the stack running (`docker compose up -d`), background traffic is automatic
 
    ```bash
    # Wait ~15-20s, then query incidents API:
-   curl http://localhost:8000/api/v1/incidents
+   curl http://localhost:8010/api/v1/incidents
    ```
 
 4. **Watch the investigation and remediation run automatically**:
@@ -187,7 +202,7 @@ With the stack running (`docker compose up -d`), background traffic is automatic
    changing:
 
    ```bash
-   curl http://localhost:8000/api/v1/incidents/{incident_id}
+   curl http://localhost:8010/api/v1/incidents/{incident_id}
    ```
 
    It lands on one of: `RESOLVED` (a Level 1 action auto-executed and validation confirmed
@@ -198,17 +213,17 @@ With the stack running (`docker compose up -d`), background traffic is automatic
 5. **If paused on `AWAITING_APPROVAL`, approve or reject it**:
 
    ```bash
-   curl http://localhost:8000/api/v1/incidents/{incident_id}/remediations
+   curl http://localhost:8010/api/v1/incidents/{incident_id}/remediations
    # find the remediation_id with status AWAITING_APPROVAL
 
-   curl -X POST http://localhost:8000/api/v1/incidents/{incident_id}/remediations/{remediation_id}/approve \
+   curl -X POST http://localhost:8010/api/v1/incidents/{incident_id}/remediations/{remediation_id}/approve \
      -H "Content-Type: application/json" -d '{"approved_by": "you@example.com"}'
    # resumes the paused LangGraph workflow, executes with durable state claiming, target-side
    # idempotency, and retry protection, validates telemetry, and (if recovery is confirmed)
    # transitions the incident to RESOLVED
    ```
 
-   See [docs/ARCHITECTURE.md §10](docs/ARCHITECTURE.md#10-running-the-demos) for both the Level 1
+   See [docs/design/demos.md](docs/design/demos.md) for both the Level 1
    (auto-executed) and Level 2 (approval-gated) walkthroughs in full, including the rejection path.
 
 6. **Disable error mode and observe recovery**:
@@ -260,9 +275,17 @@ Every remediation is independently validated after execution — an incident is 
 executor call returned 200" alone. Full audit trail: every proposal, policy decision (including
 rejections), approval, and execution result is a queryable database row.
 
-See [docs/ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-remediation-engine-v03) for the complete
+See [docs/design/remediation_safety.md](docs/design/remediation_safety.md) for the complete
 architecture (trust boundary, policy matrix, approval API, executors, validation semantics) and
-[§10](docs/ARCHITECTURE.md#10-running-the-demos) for runnable Level 1/Level 2 walkthroughs.
+[docs/design/demos.md](docs/design/demos.md) for runnable Level 1/Level 2 walkthroughs.
+
+---
+
+## Community & Security
+
+* **Contributing Guidelines**: [docs/community/CONTRIBUTING.md](docs/community/CONTRIBUTING.md)
+* **Code of Conduct**: [docs/community/CODE_OF_CONDUCT.md](docs/community/CODE_OF_CONDUCT.md)
+* **Security Policy**: [docs/community/SECURITY.md](docs/community/SECURITY.md)
 
 ---
 

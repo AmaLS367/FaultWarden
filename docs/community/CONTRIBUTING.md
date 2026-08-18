@@ -16,7 +16,7 @@ uv run mypy src
 uv run pytest -v --cov=src
 ```
 
-See [AGENTS.md](AGENTS.md) for the full set of architectural invariants, repository
+See [AGENTS.md](../../AGENTS.md) for the full set of architectural invariants, repository
 layout, and coding conventions that apply to all contributions.
 
 ---

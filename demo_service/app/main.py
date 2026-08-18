@@ -324,7 +324,7 @@ async def create_deployment(payload: DeploymentCreateRequest) -> dict[str, Any]:
             }
         )
 
-    # If payload.config_changes contains DB_POOL_SIZE
+    # Apply DB_POOL_SIZE config change immediately to simulate runtime reconfiguration
     for cfg in payload.config_changes:
         if cfg.get("key") == "DB_POOL_SIZE" and "new_value" in cfg:
             with contextlib.suppress(ValueError):
