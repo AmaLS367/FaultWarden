@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Builder Stage ---
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV UV_PYTHON_DOWNLOADS=0 \
     UV_LINK_MODE=copy
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # --- Runtime Stage ---
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
